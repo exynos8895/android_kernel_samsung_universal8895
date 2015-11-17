@@ -1183,6 +1183,7 @@ static const char *f2fs_encrypted_follow_link(struct dentry *dentry, void **cook
 	if (IS_ERR(cpage))
 		return ERR_CAST(cpage);
 	caddr = page_address(cpage);
+	caddr[size] = 0;
 
 	/* Symlink is encrypted */
 	sd = (struct fscrypt_symlink_data *)caddr;
@@ -1219,11 +1220,12 @@ static const char *f2fs_encrypted_follow_link(struct dentry *dentry, void **cook
 	/* Null-terminate the name */
 	paddr[pstr.len] = '\0';
 
-	put_page(cpage);
+	page_cache_release(cpage);
 	return *cookie = paddr;
 errout:
-	fscrypt_fname_free_buffer(&pstr);
-	put_page(cpage);
+	kfree(cstr.name);
+	f2fs_fname_crypto_free_buffer(&pstr);
+	page_cache_release(cpage);
 	return ERR_PTR(res);
 }
 
