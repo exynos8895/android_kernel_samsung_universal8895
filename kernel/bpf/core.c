@@ -317,10 +317,6 @@ static unsigned int __bpf_prog_run(void *ctx, const struct bpf_insn *insn)
 	FP = (u64) (unsigned long) &stack[ARRAY_SIZE(stack)];
 	ARG1 = (u64) (unsigned long) ctx;
 
-	/* Registers used in classic BPF programs need to be reset first. */
-	regs[BPF_REG_A] = 0;
-	regs[BPF_REG_X] = 0;
-
 select_insn:
 #ifdef CONFIG_RKP_CFP_JOPP
 	//make sure jump to addr is sanitized before goto
