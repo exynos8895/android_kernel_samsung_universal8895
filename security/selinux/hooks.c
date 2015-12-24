@@ -942,7 +942,7 @@ static int selinux_set_mnt_opts(struct super_block *sb,
 			goto out;
 
 		root_isec->sid = rootcontext_sid;
-		root_isec->initialized = 1;
+		root_isec->initialized = LABEL_INITIALIZED;
 	}
 
 	if (defcontext_sid) {
@@ -1449,11 +1449,11 @@ static int inode_doinit_with_dentry(struct inode *inode, struct dentry *opt_dent
 	unsigned len = 0;
 	int rc = 0;
 
-	if (isec->initialized)
+	if (isec->initialized == LABEL_INITIALIZED)
 		goto out;
 
 	mutex_lock(&isec->lock);
-	if (isec->initialized)
+	if (isec->initialized == LABEL_INITIALIZED)
 		goto out_unlock;
 
 	sbsec = inode->i_sb->s_security;
@@ -1625,7 +1625,7 @@ static int inode_doinit_with_dentry(struct inode *inode, struct dentry *opt_dent
 		break;
 	}
 
-	isec->initialized = 1;
+	isec->initialized = LABEL_INITIALIZED;
 
 out_unlock:
 	mutex_unlock(&isec->lock);
@@ -3142,7 +3142,7 @@ static int selinux_inode_init_security(struct inode *inode, struct inode *dir,
 		struct inode_security_struct *isec = inode->i_security;
 		isec->sclass = inode_mode_to_security_class(inode->i_mode);
 		isec->sid = newsid;
-		isec->initialized = 1;
+		isec->initialized = LABEL_INITIALIZED;
 	}
 
 	if (!ss_initialized || !(sbsec->flags & SBLABEL_MNT))
@@ -3538,7 +3538,7 @@ static void selinux_inode_post_setxattr(struct dentry *dentry, const char *name,
 
 	isec->sclass = inode_mode_to_security_class(inode->i_mode);
 	isec->sid = newsid;
-	isec->initialized = 1;
+	isec->initialized = LABEL_INITIALIZED;
 
 	return;
 }
@@ -3657,7 +3657,7 @@ static int selinux_inode_setsecurity(struct inode *inode, const char *name,
 
 	isec->sclass = inode_mode_to_security_class(inode->i_mode);
 	isec->sid = newsid;
-	isec->initialized = 1;
+	isec->initialized = LABEL_INITIALIZED;
 	return 0;
 }
 
@@ -4477,7 +4477,7 @@ static void selinux_task_to_inode(struct task_struct *p,
 #endif  /* CONFIG_RKP_KDP */
 
 	isec->sid = sid;
-	isec->initialized = 1;
+	isec->initialized = LABEL_INITIALIZED;
 }
 
 /* Returns error only if unable to parse addresses */
@@ -4818,7 +4818,7 @@ static int selinux_socket_post_create(struct socket *sock, int family,
 			return err;
 	}
 
-	isec->initialized = 1;
+	isec->initialized = LABEL_INITIALIZED;
 
 	if (sock->sk) {
 		sksec = sock->sk->sk_security;
@@ -5031,7 +5031,7 @@ static int selinux_socket_accept(struct socket *sock, struct socket *newsock)
 	isec = inode_security(SOCK_INODE(sock));
 	newisec->sclass = isec->sclass;
 	newisec->sid = isec->sid;
-	newisec->initialized = 1;
+	newisec->initialized = LABEL_INITIALIZED;
 
 	return 0;
 }
@@ -6880,6 +6880,15 @@ static void selinux_release_secctx(char *secdata, u32 seclen)
 	kfree(secdata);
 }
 
+static void selinux_inode_invalidate_secctx(struct inode *inode)
+{
+	struct inode_security_struct *isec = inode->i_security;
+
+	mutex_lock(&isec->lock);
+	isec->initialized = LABEL_INVALID;
+	mutex_unlock(&isec->lock);
+}
+
 /*
  *	called with inode->i_mutex locked
  */
@@ -7284,6 +7293,7 @@ RKP_RO_AREA static struct security_hook_list selinux_hooks[] = {
 	LSM_HOOK_INIT(secid_to_secctx, selinux_secid_to_secctx),
 	LSM_HOOK_INIT(secctx_to_secid, selinux_secctx_to_secid),
 	LSM_HOOK_INIT(release_secctx, selinux_release_secctx),
+	LSM_HOOK_INIT(inode_invalidate_secctx, selinux_inode_invalidate_secctx),
 	LSM_HOOK_INIT(inode_notifysecctx, selinux_inode_notifysecctx),
 	LSM_HOOK_INIT(inode_setsecctx, selinux_inode_setsecctx),
 	LSM_HOOK_INIT(inode_getsecctx, selinux_inode_getsecctx),

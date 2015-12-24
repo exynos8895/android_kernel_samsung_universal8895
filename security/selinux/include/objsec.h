@@ -40,6 +40,12 @@ struct task_security_struct {
 #endif
 };
 
+enum label_initialized {
+	LABEL_MISSING,		/* not initialized */
+	LABEL_INITIALIZED,	/* inizialized */
+	LABEL_INVALID		/* invalid */
+};
+
 struct inode_security_struct {
 	struct inode *inode;	/* back pointer to inode object */
 	union {
