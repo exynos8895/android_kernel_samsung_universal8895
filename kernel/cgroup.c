@@ -5769,7 +5769,9 @@ static void cgroup_release_agent(struct work_struct *work)
 	if (!pathbuf || !agentbuf)
 		goto out;
 
+	spin_lock_irq(&css_set_lock);
 	path = cgroup_path(cgrp, pathbuf, PATH_MAX);
+	spin_unlock_irq(&css_set_lock);
 	if (!path)
 		goto out;
 
