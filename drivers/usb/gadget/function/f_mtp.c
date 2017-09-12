@@ -38,7 +38,7 @@
 #include <linux/configfs.h>
 #include <linux/usb/composite.h>
 
-#include "configfs.h"
+#include "../configfs.h"
 
 #define MTP_BULK_BUFFER_SIZE       16384
 #define INTR_BUFFER_SIZE           28
