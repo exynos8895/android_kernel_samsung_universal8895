@@ -2043,6 +2043,10 @@ static int s3c24xx_serial_probe(struct platform_device *pdev)
 			port_index = ret;
 		}
 	}
+	if (index >= ARRAY_SIZE(s3c24xx_serial_ports)) {
+		dev_err(&pdev->dev, "serial%d out of range\n", index);
+		return -EINVAL;
+	}
 	ourport = &s3c24xx_serial_ports[port_index];
 
 	if (ourport->port.line != port_index)
