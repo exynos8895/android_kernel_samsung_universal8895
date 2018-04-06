@@ -88,6 +88,7 @@ static int input_leds_connect(struct input_handler *handler,
 			      const struct input_device_id *id)
 {
 	struct input_leds *leds;
+	struct input_led *led;
 	unsigned int num_leds;
 	unsigned int led_code;
 	int led_no;
@@ -119,14 +120,10 @@ static int input_leds_connect(struct input_handler *handler,
 
 	led_no = 0;
 	for_each_set_bit(led_code, dev->ledbit, LED_CNT) {
-		struct input_led *led = &leds->leds[led_no];
-
-
 		if (!input_led_info[led_code].name)
 			continue;
-		if (led_no >= num_leds)
-			break;
 
+		led = &leds->leds[led_no];
 		led->handle = &leds->handle;
 		led->code = led_code;
 
