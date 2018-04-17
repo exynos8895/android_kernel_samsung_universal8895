@@ -38,6 +38,11 @@
 #include <linux/vmalloc.h>
 #include <linux/wakelock.h>
 
+#if defined(CONFIG_FB)
+#include <linux/notifier.h>
+#include <linux/fb.h>
+#endif
+
 #if defined(CONFIG_TRUSTONIC_TRUSTED_UI)
 #include <linux/t-base-tui.h>
 #endif
@@ -675,6 +680,10 @@ struct sec_ts_data {
 	u8 pressure_setting_mode;
 	volatile u8 touch_noise_status;
 	volatile bool input_closed;
+
+#if defined(CONFIG_FB)
+	struct notifier_block fb_notif;
+#endif
 
 	int touch_count;
 	int tx_count;
