@@ -41,6 +41,13 @@ extern void epen_disable_mode(int mode);
 #endif
 #endif
 
+#if defined(CONFIG_FB)
+static int touch_fb_notifier_callback(struct notifier_block *self,
+		unsigned long event, void *data);
+extern int input_enable_device(struct input_dev *dev);
+extern int input_disable_device(struct input_dev *dev);
+#endif
+
 int sec_ts_read_information(struct sec_ts_data *ts);
 
 #ifdef CONFIG_SECURE_TOUCH
@@ -2358,6 +2365,16 @@ static int sec_ts_probe(struct i2c_client *client, const struct i2c_device_id *i
 			__func__, client->irq);
 #endif
 
+#ifdef CONFIG_FB
+	ts->fb_notif.notifier_call = touch_fb_notifier_callback;
+	ret = fb_register_client(&ts->fb_notif);
+	if (ret < 0) {
+		input_err(true, &ts->client->dev, "%s: Failed to register fb client\n",
+			__func__);
+		goto err_fb_client;
+	}
+#endif
+
 	/* need remove below resource @ remove driver */
 #if !defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
 	sec_ts_raw_device_init(ts);
@@ -2403,6 +2420,11 @@ static int sec_ts_probe(struct i2c_client *client, const struct i2c_device_id *i
 #endif
 	sec_ts_fn_remove(ts);
 	free_irq(client->irq, ts);
+#endif
+#ifdef CONFIG_FB
+	fb_unregister_client(&ts->fb_notif);
+
+err_fb_client:
 #endif
 err_irq:
 	pm_qos_remove_request(&ts->pm_i2c_req);
@@ -2851,6 +2873,12 @@ static int sec_ts_remove(struct i2c_client *client)
 
 	input_info(true, &ts->client->dev, "%s\n", __func__);
 
+#if defined(CONFIG_FB)
+	if (fb_unregister_client(&ts->fb_notif))
+		input_info(true, &ts->client->dev,
+			"%s: Error occured while unregistering fb_notifier.\n", __func__);
+#endif
+
 	cancel_delayed_work_sync(&ts->work_read_info);
 	flush_delayed_work(&ts->work_read_info);
 
@@ -3103,6 +3131,27 @@ static int sec_ts_pm_resume(struct device *dev)
 
 	return 0;
 }
+
+#if defined(CONFIG_FB)
+static int touch_fb_notifier_callback(struct notifier_block *self,
+		unsigned long event, void *data)
+{
+	struct sec_ts_data *ts =
+		container_of(self, struct sec_ts_data, fb_notif);
+	struct fb_event *ev = (struct fb_event *)data;
+
+	if (ev && ev->data && event == FB_EVENT_BLANK) {
+		int *blank = (int *)ev->data;
+
+		if (*blank == FB_BLANK_UNBLANK)
+			input_enable_device(ts->input_dev);
+		else
+			input_disable_device(ts->input_dev);
+	}
+
+	return 0;
+}
+#endif
 #endif
 
 #ifdef CONFIG_TRUSTONIC_TRUSTED_UI
