@@ -2163,6 +2163,7 @@ static inline struct page *follow_page(struct vm_area_struct *vma,
 #define FOLL_MLOCK	0x1000	/* lock present pages */
 #define FOLL_COW	0x4000	/* internal GUP flag */
 #define FOLL_CMA	0x80000	/* migrate if the page is from cma pageblock */
+#define FOLL_ANON	0x8000	/* don't do file mappings */
 
 typedef int (*pte_fn_t)(pte_t *pte, pgtable_t token, unsigned long addr,
 			void *data);
