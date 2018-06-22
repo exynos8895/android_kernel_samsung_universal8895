@@ -28,9 +28,6 @@
 #include <linux/thermal.h>
 #include <linux/cpumask.h>
 
-typedef int (*get_static_t)(cpumask_t *cpumask, int interval,
-			    unsigned long voltage, u32 *power);
-
 #ifdef CONFIG_GPU_THERMAL
 /**
  * gpufreq_cooling_register - function to create gpufreq cooling device.
