@@ -310,7 +310,7 @@ struct ufs_hba_variant_ops {
 	void	(*set_nexus_t_xfer_req)(struct ufs_hba *,
 					int, struct scsi_cmnd *);
 	void	(*set_nexus_t_task_mgmt)(struct ufs_hba *, int, u8);
-	void    (*hibern8_notify)(struct ufs_hba *, u8, bool);
+	void    (*hibern8_notify)(struct ufs_hba *, u8, int);
 	int     (*suspend)(struct ufs_hba *, enum ufs_pm_op);
 	int     (*resume)(struct ufs_hba *, enum ufs_pm_op);
 	void	(*dbg_register_dump)(struct ufs_hba *hba);

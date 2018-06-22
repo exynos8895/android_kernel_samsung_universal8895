@@ -1820,7 +1820,7 @@ static void exynos_ufs_set_nexus_t_task_mgmt(struct ufs_hba *hba, int tag, u8 tm
 }
 
 static void exynos_ufs_hibern8_notify(struct ufs_hba *hba,
-				u8 enter, bool notify)
+				u8 enter, int notify)
 {
 	switch (notify) {
 	case PRE_CHANGE:
