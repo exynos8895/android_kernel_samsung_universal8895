@@ -3215,7 +3215,7 @@ static void clear_cover_mode(void *device_data)
 #endif
 		}
 
-		if (!ts->power_status == SEC_TS_STATE_POWER_OFF && ts->reinit_done) {
+		if (!(ts->power_status == SEC_TS_STATE_POWER_OFF) && ts->reinit_done) {
 			if (ts->flip_enable)
 				sec_ts_set_cover_type(ts, true);
 			else
