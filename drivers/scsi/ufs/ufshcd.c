@@ -1369,9 +1369,9 @@ ufshcd_wait_for_uic_cmd(struct ufs_hba *hba, struct uic_command *uic_cmd)
 
 	if (uic_cmd->command == UIC_CMD_DME_LINK_STARTUP)
 		index = 0;
-	else if ((uic_cmd->command == UIC_CMD_DME_HIBER_ENTER))
+	else if (uic_cmd->command == UIC_CMD_DME_HIBER_ENTER)
 		index = 1;
-	else if ((uic_cmd->command == UIC_CMD_DME_HIBER_EXIT))
+	else if (uic_cmd->command == UIC_CMD_DME_HIBER_EXIT)
 		index = 2;
 	else
 		index = -1;
