@@ -12,22 +12,6 @@
 #ifndef VISION_FOR_LINUX_H_
 #define VISION_FOR_LINUX_H_
 
-#ifndef __u32
-typedef unsigned int __u32;
-#endif
-
-#ifndef __u16
-typedef unsigned short __u16;
-#endif
-
-#ifndef __u8
-typedef unsigned char __u8;
-#endif
-
-#ifndef __s32
-typedef	int __s32;
-#endif
-
 #define VS4L_VERSION		5
 #define VS4L_TARGET_SC		0xFFFF
 #define VS4L_TARGET_SC_SHIFT	16
