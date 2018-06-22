@@ -75,6 +75,10 @@ struct thermal_zone_device;
 struct thermal_cooling_device;
 struct thermal_instance;
 
+/* From cpu_cooling.h and gpu_cooling.h */
+typedef int (*get_static_t)(cpumask_t *cpumask, int interval,
+			    unsigned long voltage, u32 *power);
+
 #ifdef CONFIG_SEC_DEBUG_HW_PARAM
 enum thermal_zone_devices {
 	THERMAL_ZONE_MNGS = 0,
