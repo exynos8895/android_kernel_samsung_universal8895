@@ -3856,7 +3856,7 @@ static void decon_parse_dt(struct decon_device *decon)
 		}
 	}
 
-	if ((decon->dt.out_type == DECON_OUT_DSI)) {
+	if (decon->dt.out_type == DECON_OUT_DSI) {
 		te_eint = of_get_child_by_name(decon->dev->of_node, "te_eint");
 		if (!te_eint) {
 			decon_info("No DT node for te_eint\n");
