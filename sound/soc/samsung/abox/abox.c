@@ -296,7 +296,7 @@ static int abox_start_ipc_transaction_atomic(struct device *dev,
 		break;
 	}
 
-	memcpy(tx_sram_base, supplement, size);
+	memcpy_toio(tx_sram_base, supplement, size);
 	writel(1, tx_ack_sram_base);
 	abox_gic_generate_interrupt(data->pdev_gic, hw_irq);
 
@@ -4617,7 +4617,7 @@ static int abox_download_firmware(struct platform_device *pdev)
 		return -EAGAIN;
 	}
 	memset_io(data->sram_base, 0, data->sram_size);
-	memcpy(data->sram_base, data->firmware_sram->data,
+	memcpy_toio(data->sram_base, data->firmware_sram->data,
 			data->firmware_sram->size);
 
 	if (!data->firmware_dram) {
