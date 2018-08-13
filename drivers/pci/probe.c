@@ -1362,6 +1362,10 @@ static void pci_configure_mps(struct pci_dev *dev)
 	if (!bridge || !pci_is_pcie(bridge))
 		return;
 
+	/* MPS and MRRS fields are of type 'RsvdP' for VFs, short-circuit out */
+	if (dev->is_virtfn)
+		return;
+
 	mps = pcie_get_mps(dev);
 	p_mps = pcie_get_mps(bridge);
 
