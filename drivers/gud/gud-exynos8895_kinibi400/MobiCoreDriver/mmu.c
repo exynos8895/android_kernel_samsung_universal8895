@@ -81,7 +81,16 @@ static inline long gup_local(struct mm_struct *mm, uintptr_t start,
 			     unsigned long nr_pages, int write,
 			     struct page **pages)
 {
-	return get_user_pages(NULL, mm, start, nr_pages, write, 0, pages, NULL);
+ 	unsigned int flags = 0;
+
+	if (write)
+		flags |= FOLL_WRITE;
+
+	/* ExySp */
+	flags |= FOLL_CMA; /* Is this actually required here? Seeing the other changes in the driver it seems so.. */
+
+	return get_user_pages(NULL, mm, start, nr_pages, flags, pages,
+				     NULL);
 }
 #elif KERNEL_VERSION(4, 9, 0) > LINUX_VERSION_CODE
 static inline long gup_local(struct mm_struct *mm, uintptr_t start,
