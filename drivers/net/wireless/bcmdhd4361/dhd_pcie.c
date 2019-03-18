@@ -2240,7 +2240,7 @@ static int concate_revision_bcm4358(dhd_bus_t *bus, char *fw_path, char *nv_path
 static int concate_revision_bcm4359(dhd_bus_t *bus, char *fw_path, char *nv_path)
 {
 	uint32 chip_ver;
-	char chipver_tag[10] = {0, };
+	char chipver_tag[11] = {0, };
 #if defined(SUPPORT_MULTIPLE_MODULE_CIS) && defined(USE_CID_CHECK) && \
 	defined(SUPPORT_BCM4359_MIXED_MODULES)
 	char chipver_tag_nv[20] = {0, };
@@ -2250,10 +2250,10 @@ static int concate_revision_bcm4359(dhd_bus_t *bus, char *fw_path, char *nv_path
 	chip_ver = bus->sih->chiprev;
 	if (chip_ver == 4) {
 		DHD_ERROR(("----- CHIP 4359 B0 -----\n"));
-		strncat(chipver_tag, "_b0", strlen("_b0"));
+		strlcat(chipver_tag, "_b0", sizeof(chipver_tag));
 	} else if (chip_ver == 5) {
 		DHD_ERROR(("----- CHIP 4359 B1 -----\n"));
-		strncat(chipver_tag, "_b1", strlen("_b1"));
+		strlcat(chipver_tag, "_b1", sizeof(chipver_tag));
 	} else if (chip_ver == 9) {
 		DHD_ERROR(("----- CHIP 4359 C0 -----\n"));
 #if defined(SUPPORT_MULTIPLE_MODULE_CIS) && defined(USE_CID_CHECK) && \
@@ -2268,7 +2268,7 @@ static int concate_revision_bcm4359(dhd_bus_t *bus, char *fw_path, char *nv_path
 		/* In case of SEMCO module, extra vendor string doen not need to add */
 		strncat(chipver_tag_nv, "_c0", strlen("_c0"));
 #endif /* SUPPORT_MULTIPLE_MODULE_CIS && USE_CID_CHECK && SUPPORT_BCM4359_MIXED_MODULES */
-		strncat(chipver_tag, "_c0", strlen("_c0"));
+		strlcat(chipver_tag, "_c0", sizeof(chipver_tag));
 #if defined(CONFIG_WLAN_GRACE) || defined(CONFIG_SEC_GRACEQLTE_PROJECT) || \
 	defined(CONFIG_SEC_LYKANLTE_PROJECT) || defined(CONFIG_SEC_KELLYLTE_PROJECT)
 		DHD_ERROR(("----- Adding _plus string -----\n"));
@@ -2347,7 +2347,7 @@ concate_revision_bcm4361(dhd_bus_t *bus, char *fw_path, char *nv_path)
 
 	if (info) {
 		if (is_murata_fem) {
-			strncat(nv_path, NVRAM_FEM_MURATA, strlen(NVRAM_FEM_MURATA));
+			strncat(nv_path, NVRAM_FEM_MURATA, strlen(NVRAM_FEM_MURATA) + 1);
 		}
 		strncat(nv_path, info->nvram_ext, strlen(info->nvram_ext));
 		strncat(fw_path, info->fw_ext, strlen(info->fw_ext));

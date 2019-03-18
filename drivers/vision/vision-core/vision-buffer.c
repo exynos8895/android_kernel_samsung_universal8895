@@ -39,7 +39,7 @@ void vision_dmsg_concate(struct vision_debug_log *log, const char *fmt, ...)
 	}
 
 	copy_len = min((DEBUG_SENTENCE_MAX - log->dsentence_pos - 1), strlen(term));
-	strncpy(log->dsentence + log->dsentence_pos, term, copy_len);
+	memcpy(log->dsentence + log->dsentence_pos, term, copy_len);
 	log->dsentence_pos += copy_len;
 	log->dsentence[log->dsentence_pos] = 0;
 }

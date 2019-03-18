@@ -446,14 +446,14 @@ static struct max77865_rgb_platform_data
 		}
 	}
 
-	strncat(normal_po_cur, octa, strlen(octa));
-	strncat(low_po_cur, octa, strlen(octa));
-	strncat(br_ratio_r, octa, strlen(octa));
-	strncat(br_ratio_g, octa, strlen(octa));
-	strncat(br_ratio_b, octa, strlen(octa));
-	strncat(br_ratio_r_low, octa, strlen(octa));
-	strncat(br_ratio_g_low, octa, strlen(octa));
-	strncat(br_ratio_b_low, octa, strlen(octa));
+	strlcat(normal_po_cur, octa, sizeof(normal_po_cur));
+	strlcat(low_po_cur, octa, sizeof(low_po_cur));
+	strlcat(br_ratio_r, octa, sizeof(br_ratio_r));
+	strlcat(br_ratio_g, octa, sizeof(br_ratio_g));
+	strlcat(br_ratio_b, octa, sizeof(br_ratio_b));
+	strlcat(br_ratio_r_low, octa, sizeof(br_ratio_r_low));
+	strlcat(br_ratio_g_low, octa, sizeof(br_ratio_g_low));
+	strlcat(br_ratio_b_low, octa, sizeof(br_ratio_b_low));
 
 	/* get normal_powermode_current value in dt */
 	ret = of_property_read_u32(np, normal_po_cur, &temp);
@@ -1084,7 +1084,7 @@ static int max77865_rgb_probe(struct platform_device *pdev)
 		if (unlikely(!p))
 			goto alloc_err_flash;
 
-		strncpy(p, name, strlen(name));
+		memcpy(p, name, strlen(name));
 		max77865_rgb->led[i].name = p;
 		max77865_rgb->led[i].brightness_set = max77865_rgb_set;
 		max77865_rgb->led[i].brightness_get = max77865_rgb_get;

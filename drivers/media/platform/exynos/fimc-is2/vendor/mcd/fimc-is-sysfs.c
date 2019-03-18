@@ -303,27 +303,27 @@ static ssize_t camera_ssrm_camera_info_show(struct device *dev,
 
 	for (i = 0; i < FIMC_IS_SENSOR_COUNT; i++) {
 		if (SsrmCameraInfo[i].cameraID != -1) {
-			strncat(buf, "ID=", strlen("ID="));
+			strlcat(buf, "ID=", sizeof(buf));
 			sprintf(temp_buffer, "%d;", SsrmCameraInfo[i].cameraID);
-			strncat(buf, temp_buffer, strlen(temp_buffer));
+			strlcat(buf, temp_buffer, sizeof(buf));
 
-			strncat(buf, "ON=", strlen("ON="));
+			strlcat(buf, "ON=", sizeof(buf));
 			sprintf(temp_buffer, "%d;", SsrmCameraInfo[i].sensorOn);
-			strncat(buf, temp_buffer, strlen(temp_buffer));
+			strlcat(buf, temp_buffer, sizeof(buf));
 
 			if (SsrmCameraInfo[i].previewMinFPS && SsrmCameraInfo[i].previewMaxFPS) {
-				strncat(buf, "FPS=", strlen("FPS="));
+				strlcat(buf, "FPS=", sizeof(buf));
 				sprintf(temp_buffer, "%d,%d;",
 					SsrmCameraInfo[i].previewMinFPS, SsrmCameraInfo[i].previewMaxFPS);
-				strncat(buf, temp_buffer, strlen(temp_buffer));
+				strlcat(buf, temp_buffer, sizeof(buf));
 			}
 			if (SsrmCameraInfo[i].previewSizeWidth && SsrmCameraInfo[i].previewSizeHeight) {
-				strncat(buf, "SIZE=", strlen("SIZE="));
+				strlcat(buf, "SIZE=", sizeof(buf));
 				sprintf(temp_buffer, "%d,%d;",
 					SsrmCameraInfo[i].previewSizeWidth, SsrmCameraInfo[i].previewSizeHeight);
-				strncat(buf, temp_buffer, strlen(temp_buffer));
+				strlcat(buf, temp_buffer, sizeof(buf));
 			}
-			strncat(buf, "\n", strlen("\n"));
+			strlcat(buf, "\n", sizeof(buf));
 		}
 	}
 	return strlen(buf);
@@ -551,144 +551,144 @@ static ssize_t camera_front_info_show(struct device *dev,
 		strcpy(camera_info, "ISP=");
 		switch(cam_info->isp) {
 			case CAM_INFO_ISP_TYPE_INTERNAL :
-				strncat(camera_info, "INT;", strlen("INT;"));
+				strlcat(camera_info, "INT;", sizeof(camera_info));
 				break;
 			case CAM_INFO_ISP_TYPE_EXTERNAL :
-				strncat(camera_info, "EXT;", strlen("EXT;"));
+				strlcat(camera_info, "EXT;", sizeof(camera_info));
 				break;
 			case CAM_INFO_ISP_TYPE_SOC :
-				strncat(camera_info, "SOC;", strlen("SOC;"));
+				strlcat(camera_info, "SOC;", sizeof(camera_info));
 				break;
 			default :
-				strncat(camera_info, "NULL;", strlen("NULL;"));
+				strlcat(camera_info, "NULL;", sizeof(camera_info));
 				break;
 		}
 
-		strncat(camera_info, "CALMEM=", strlen("CALMEM="));
+		strlcat(camera_info, "CALMEM=", sizeof(camera_info));
 		switch(cam_info->cal_memory) {
 			case CAM_INFO_CAL_MEM_TYPE_NONE :
-				strncat(camera_info, "N;", strlen("N;"));
+				strlcat(camera_info, "N;", sizeof(camera_info));
 				break;
 			case CAM_INFO_CAL_MEM_TYPE_FROM :
 			case CAM_INFO_CAL_MEM_TYPE_EEPROM :
 			case CAM_INFO_CAL_MEM_TYPE_OTP :
-				strncat(camera_info, "Y;", strlen("Y;"));
+				strlcat(camera_info, "Y;", sizeof(camera_info));
 				break;
 			default :
-				strncat(camera_info, "NULL;", strlen("NULL;"));
+				strlcat(camera_info, "NULL;", sizeof(camera_info));
 				break;
 		}
 
-		strncat(camera_info, "READVER=", strlen("READVER="));
+		strlcat(camera_info, "READVER=", sizeof(camera_info));
 		switch(cam_info->read_version) {
 			case CAM_INFO_READ_VER_SYSFS :
-				strncat(camera_info, "SYSFS;", strlen("SYSFS;"));
+				strlcat(camera_info, "SYSFS;", sizeof(camera_info));
 				break;
 			case CAM_INFO_READ_VER_CAMON :
-				strncat(camera_info, "CAMON;", strlen("CAMON;"));
+				strlcat(camera_info, "CAMON;", sizeof(camera_info));
 				break;
 			default :
-				strncat(camera_info, "NULL;", strlen("NULL;"));
+				strlcat(camera_info, "NULL;", sizeof(camera_info));
 				break;
 		}
 
-		strncat(camera_info, "COREVOLT=", strlen("COREVOLT="));
+		strlcat(camera_info, "COREVOLT=", sizeof(camera_info));
 		switch(cam_info->core_voltage) {
 			case CAM_INFO_CORE_VOLT_NONE :
-				strncat(camera_info, "N;", strlen("N;"));
+				strlcat(camera_info, "N;", sizeof(camera_info));
 				break;
 			case CAM_INFO_CORE_VOLT_USE :
-				strncat(camera_info, "Y;", strlen("Y;"));
+				strlcat(camera_info, "Y;", sizeof(camera_info));
 				break;
 			default :
-				strncat(camera_info, "NULL;", strlen("NULL;"));
+				strlcat(camera_info, "NULL;", sizeof(camera_info));
 				break;
 		}
 
-		strncat(camera_info, "UPGRADE=", strlen("UPGRADE="));
+		strlcat(camera_info, "UPGRADE=", sizeof(camera_info));
 		switch(cam_info->upgrade) {
 			case CAM_INFO_FW_UPGRADE_NONE :
-				strncat(camera_info, "N;", strlen("N;"));
+				strlcat(camera_info, "N;", sizeof(camera_info));
 				break;
 			case CAM_INFO_FW_UPGRADE_SYSFS :
-				strncat(camera_info, "SYSFS;", strlen("SYSFS;"));
+				strlcat(camera_info, "SYSFS;", sizeof(camera_info));
 				break;
 			case CAM_INFO_FW_UPGRADE_CAMON :
-				strncat(camera_info, "CAMON;", strlen("CAMON;"));
+				strlcat(camera_info, "CAMON;", sizeof(camera_info));
 				break;
 			default :
-				strncat(camera_info, "NULL;", strlen("NULL;"));
+				strlcat(camera_info, "NULL;", sizeof(camera_info));
 				break;
 		}
 
-		strncat(camera_info, "FWWRITE=", strlen("FWWRITE="));
+		strlcat(camera_info, "FWWRITE=", sizeof(camera_info));
 		switch(cam_info->fw_write) {
 			case CAM_INFO_FW_WRITE_NONE :
-				strncat(camera_info, "N;", strlen("N;"));
+				strlcat(camera_info, "N;", sizeof(camera_info));
 				break;
 			case CAM_INFO_FW_WRITE_OS :
-				strncat(camera_info, "OS;", strlen("OS;"));
+				strlcat(camera_info, "OS;", sizeof(camera_info));
 				break;
 			case CAM_INFO_FW_WRITE_SD :
-				strncat(camera_info, "SD;", strlen("SD;"));
+				strlcat(camera_info, "SD;", sizeof(camera_info));
 				break;
 			case CAM_INFO_FW_WRITE_ALL :
-				strncat(camera_info, "ALL;", strlen("ALL;"));
+				strlcat(camera_info, "ALL;", sizeof(camera_info));
 				break;
 			default :
-				strncat(camera_info, "NULL;", strlen("NULL;"));
+				strlcat(camera_info, "NULL;", sizeof(camera_info));
 				break;
 		}
 
-		strncat(camera_info, "FWDUMP=", strlen("FWDUMP="));
+		strlcat(camera_info, "FWDUMP=", sizeof(camera_info));
 		switch(cam_info->fw_dump) {
 			case CAM_INFO_FW_DUMP_NONE :
-				strncat(camera_info, "N;", strlen("N;"));
+				strlcat(camera_info, "N;", sizeof(camera_info));
 				break;
 			case CAM_INFO_FW_DUMP_USE :
-				strncat(camera_info, "Y;", strlen("Y;"));
+				strlcat(camera_info, "Y;", sizeof(camera_info));
 				break;
 			default :
-				strncat(camera_info, "NULL;", strlen("NULL;"));
+				strlcat(camera_info, "NULL;", sizeof(camera_info));
 				break;
 		}
 
-		strncat(camera_info, "CC=", strlen("CC="));
+		strlcat(camera_info, "CC=", sizeof(camera_info));
 		switch(cam_info->companion) {
 			case CAM_INFO_COMPANION_NONE :
-				strncat(camera_info, "N;", strlen("N;"));
+				strlcat(camera_info, "N;", sizeof(camera_info));
 				break;
 			case CAM_INFO_COMPANION_USE :
-				strncat(camera_info, "Y;", strlen("Y;"));
+				strlcat(camera_info, "Y;", sizeof(camera_info));
 				break;
 			default :
-				strncat(camera_info, "NULL;", strlen("NULL;"));
+				strlcat(camera_info, "NULL;", sizeof(camera_info));
 				break;
 		}
 
-		strncat(camera_info, "OIS=", strlen("OIS="));
+		strlcat(camera_info, "OIS=", sizeof(camera_info));
 		switch(cam_info->ois) {
 			case CAM_INFO_OIS_NONE :
-				strncat(camera_info, "N;", strlen("N;"));
+				strlcat(camera_info, "N;", sizeof(camera_info));
 				break;
 			case CAM_INFO_OIS_USE :
-				strncat(camera_info, "Y;", strlen("Y;"));
+				strlcat(camera_info, "Y;", sizeof(camera_info));
 				break;
 			default :
-				strncat(camera_info, "NULL;", strlen("NULL;"));
+				strlcat(camera_info, "NULL;", sizeof(camera_info));
 				break;
 		}
 
-		strncat(camera_info, "VALID=", strlen("VALID="));
+		strlcat(camera_info, "VALID=", sizeof(camera_info));
 		switch(cam_info->valid) {
 			case CAM_INFO_INVALID :
-				strncat(camera_info, "N;", strlen("N;"));
+				strlcat(camera_info, "N;", sizeof(camera_info));
 				break;
 			case CAM_INFO_VALID :
-				strncat(camera_info, "Y;", strlen("Y;"));
+				strlcat(camera_info, "Y;", sizeof(camera_info));
 				break;
 			default :
-				strncat(camera_info, "NULL;", strlen("NULL;"));
+				strlcat(camera_info, "NULL;", sizeof(camera_info));
 				break;
 		}
 
@@ -1033,144 +1033,144 @@ static ssize_t camera_rear_info_show(struct device *dev,
 		strcpy(camera_info, "ISP=");
 		switch(cam_info->isp) {
 			case CAM_INFO_ISP_TYPE_INTERNAL :
-				strncat(camera_info, "INT;", strlen("INT;"));
+				strlcat(camera_info, "INT;", sizeof(camera_info));
 				break;
 			case CAM_INFO_ISP_TYPE_EXTERNAL :
-				strncat(camera_info, "EXT;", strlen("EXT;"));
+				strlcat(camera_info, "EXT;", sizeof(camera_info));
 				break;
 			case CAM_INFO_ISP_TYPE_SOC :
-				strncat(camera_info, "SOC;", strlen("SOC;"));
+				strlcat(camera_info, "SOC;", sizeof(camera_info));
 				break;
 			default :
-				strncat(camera_info, "NULL;", strlen("NULL;"));
+				strlcat(camera_info, "NULL;", sizeof(camera_info));
 				break;
 		}
 
-		strncat(camera_info, "CALMEM=", strlen("CALMEM="));
+		strlcat(camera_info, "CALMEM=", sizeof(camera_info));
 		switch(cam_info->cal_memory) {
 			case CAM_INFO_CAL_MEM_TYPE_NONE :
-				strncat(camera_info, "N;", strlen("N;"));
+				strlcat(camera_info, "N;", sizeof(camera_info));
 				break;
 			case CAM_INFO_CAL_MEM_TYPE_FROM :
 			case CAM_INFO_CAL_MEM_TYPE_EEPROM :
 			case CAM_INFO_CAL_MEM_TYPE_OTP :
-				strncat(camera_info, "Y;", strlen("Y;"));
+				strlcat(camera_info, "Y;", sizeof(camera_info));
 				break;
 			default :
-				strncat(camera_info, "NULL;", strlen("NULL;"));
+				strlcat(camera_info, "NULL;", sizeof(camera_info));
 				break;
 		}
 
-		strncat(camera_info, "READVER=", strlen("READVER="));
+		strlcat(camera_info, "READVER=", sizeof(camera_info));
 		switch(cam_info->read_version) {
 			case CAM_INFO_READ_VER_SYSFS :
-				strncat(camera_info, "SYSFS;", strlen("SYSFS;"));
+				strlcat(camera_info, "SYSFS;", sizeof(camera_info));
 				break;
 			case CAM_INFO_READ_VER_CAMON :
-				strncat(camera_info, "CAMON;", strlen("CAMON;"));
+				strlcat(camera_info, "CAMON;", sizeof(camera_info));
 				break;
 			default :
-				strncat(camera_info, "NULL;", strlen("NULL;"));
+				strlcat(camera_info, "NULL;", sizeof(camera_info));
 				break;
 		}
 
-		strncat(camera_info, "COREVOLT=", strlen("COREVOLT="));
+		strlcat(camera_info, "COREVOLT=", sizeof(camera_info));
 		switch(cam_info->core_voltage) {
 			case CAM_INFO_CORE_VOLT_NONE :
-				strncat(camera_info, "N;", strlen("N;"));
+				strlcat(camera_info, "N;", sizeof(camera_info));
 				break;
 			case CAM_INFO_CORE_VOLT_USE :
-				strncat(camera_info, "Y;", strlen("Y;"));
+				strlcat(camera_info, "Y;", sizeof(camera_info));
 				break;
 			default :
-				strncat(camera_info, "NULL;", strlen("NULL;"));
+				strlcat(camera_info, "NULL;", sizeof(camera_info));
 				break;
 		}
 
-		strncat(camera_info, "UPGRADE=", strlen("UPGRADE="));
+		strlcat(camera_info, "UPGRADE=", sizeof(camera_info));
 		switch(cam_info->upgrade) {
 			case CAM_INFO_FW_UPGRADE_NONE :
-				strncat(camera_info, "N;", strlen("N;"));
+				strlcat(camera_info, "N;", sizeof(camera_info));
 				break;
 			case CAM_INFO_FW_UPGRADE_SYSFS :
-				strncat(camera_info, "SYSFS;", strlen("SYSFS;"));
+				strlcat(camera_info, "SYSFS;", sizeof(camera_info));
 				break;
 			case CAM_INFO_FW_UPGRADE_CAMON :
-				strncat(camera_info, "CAMON;", strlen("CAMON;"));
+				strlcat(camera_info, "CAMON;", sizeof(camera_info));
 				break;
 			default :
-				strncat(camera_info, "NULL;", strlen("NULL;"));
+				strlcat(camera_info, "NULL;", sizeof(camera_info));
 				break;
 		}
 
-		strncat(camera_info, "FWWRITE=", strlen("FWWRITE="));
+		strlcat(camera_info, "FWWRITE=", sizeof(camera_info));
 		switch(cam_info->fw_write) {
 			case CAM_INFO_FW_WRITE_NONE :
-				strncat(camera_info, "N;", strlen("N;"));
+				strlcat(camera_info, "N;", sizeof(camera_info));
 				break;
 			case CAM_INFO_FW_WRITE_OS :
-				strncat(camera_info, "OS;", strlen("OS;"));
+				strlcat(camera_info, "OS;", sizeof(camera_info));
 				break;
 			case CAM_INFO_FW_WRITE_SD :
-				strncat(camera_info, "SD;", strlen("SD;"));
+				strlcat(camera_info, "SD;", sizeof(camera_info));
 				break;
 			case CAM_INFO_FW_WRITE_ALL :
-				strncat(camera_info, "ALL;", strlen("ALL;"));
+				strlcat(camera_info, "ALL;", sizeof(camera_info));
 				break;
 			default :
-				strncat(camera_info, "NULL;", strlen("NULL;"));
+				strlcat(camera_info, "NULL;", sizeof(camera_info));
 				break;
 		}
 
-		strncat(camera_info, "FWDUMP=", strlen("FWDUMP="));
+		strlcat(camera_info, "FWDUMP=", sizeof(camera_info));
 		switch(cam_info->fw_dump) {
 			case CAM_INFO_FW_DUMP_NONE :
-				strncat(camera_info, "N;", strlen("N;"));
+				strlcat(camera_info, "N;", sizeof(camera_info));
 				break;
 			case CAM_INFO_FW_DUMP_USE :
-				strncat(camera_info, "Y;", strlen("Y;"));
+				strlcat(camera_info, "Y;", sizeof(camera_info));
 				break;
 			default :
-				strncat(camera_info, "NULL;", strlen("NULL;"));
+				strlcat(camera_info, "NULL;", sizeof(camera_info));
 				break;
 		}
 
-		strncat(camera_info, "CC=", strlen("CC="));
+		strlcat(camera_info, "CC=", sizeof(camera_info));
 		switch(cam_info->companion) {
 			case CAM_INFO_COMPANION_NONE :
-				strncat(camera_info, "N;", strlen("N;"));
+				strlcat(camera_info, "N;", sizeof(camera_info));
 				break;
 			case CAM_INFO_COMPANION_USE :
-				strncat(camera_info, "Y;", strlen("Y;"));
+				strlcat(camera_info, "Y;", sizeof(camera_info));
 				break;
 			default :
-				strncat(camera_info, "NULL;", strlen("NULL;"));
+				strlcat(camera_info, "NULL;", sizeof(camera_info));
 				break;
 		}
 
-		strncat(camera_info, "OIS=", strlen("OIS="));
+		strlcat(camera_info, "OIS=", sizeof(camera_info));
 		switch(cam_info->ois) {
 			case CAM_INFO_OIS_NONE :
-				strncat(camera_info, "N;", strlen("N;"));
+				strlcat(camera_info, "N;", sizeof(camera_info));
 				break;
 			case CAM_INFO_OIS_USE :
-				strncat(camera_info, "Y;", strlen("Y;"));
+				strlcat(camera_info, "Y;", sizeof(camera_info));
 				break;
 			default :
-				strncat(camera_info, "NULL;", strlen("NULL;"));
+				strlcat(camera_info, "NULL;", sizeof(camera_info));
 				break;
 		}
 
-		strncat(camera_info, "VALID=", strlen("VALID="));
+		strlcat(camera_info, "VALID=", sizeof(camera_info));
 		switch(cam_info->valid) {
 			case CAM_INFO_INVALID :
-				strncat(camera_info, "N;", strlen("N;"));
+				strlcat(camera_info, "N;", sizeof(camera_info));
 				break;
 			case CAM_INFO_VALID :
-				strncat(camera_info, "Y;", strlen("Y;"));
+				strlcat(camera_info, "Y;", sizeof(camera_info));
 				break;
 			default :
-				strncat(camera_info, "NULL;", strlen("NULL;"));
+				strlcat(camera_info, "NULL;", sizeof(camera_info));
 				break;
 		}
 
@@ -2731,144 +2731,144 @@ static ssize_t camera_iris_info_show(struct device *dev,
 		strcpy(camera_info, "ISP=");
 		switch(cam_info->isp) {
 			case CAM_INFO_ISP_TYPE_INTERNAL :
-				strncat(camera_info, "INT;", strlen("INT;"));
+				strlcat(camera_info, "INT;", sizeof(camera_info));
 				break;
 			case CAM_INFO_ISP_TYPE_EXTERNAL :
-				strncat(camera_info, "EXT;", strlen("EXT;"));
+				strlcat(camera_info, "EXT;", sizeof(camera_info));
 				break;
 			case CAM_INFO_ISP_TYPE_SOC :
-				strncat(camera_info, "SOC;", strlen("SOC;"));
+				strlcat(camera_info, "SOC;", sizeof(camera_info));
 				break;
 			default :
-				strncat(camera_info, "NULL;", strlen("NULL;"));
+				strlcat(camera_info, "NULL;", sizeof(camera_info));
 				break;
 		}
 
-		strncat(camera_info, "CALMEM=", strlen("CALMEM="));
+		strlcat(camera_info, "CALMEM=", sizeof(camera_info));
 		switch(cam_info->cal_memory) {
 			case CAM_INFO_CAL_MEM_TYPE_NONE :
-				strncat(camera_info, "N;", strlen("N;"));
+				strlcat(camera_info, "N;", sizeof(camera_info));
 				break;
 			case CAM_INFO_CAL_MEM_TYPE_FROM :
 			case CAM_INFO_CAL_MEM_TYPE_EEPROM :
 			case CAM_INFO_CAL_MEM_TYPE_OTP :
-				strncat(camera_info, "Y;", strlen("Y;"));
+				strlcat(camera_info, "Y;", sizeof(camera_info));
 				break;
 			default :
-				strncat(camera_info, "NULL;", strlen("NULL;"));
+				strlcat(camera_info, "NULL;", sizeof(camera_info));
 				break;
 		}
 
-		strncat(camera_info, "READVER=", strlen("READVER="));
+		strlcat(camera_info, "READVER=", sizeof(camera_info));
 		switch(cam_info->read_version) {
 			case CAM_INFO_READ_VER_SYSFS :
-				strncat(camera_info, "SYSFS;", strlen("SYSFS;"));
+				strlcat(camera_info, "SYSFS;", sizeof(camera_info));
 				break;
 			case CAM_INFO_READ_VER_CAMON :
-				strncat(camera_info, "CAMON;", strlen("CAMON;"));
+				strlcat(camera_info, "CAMON;", sizeof(camera_info));
 				break;
 			default :
-				strncat(camera_info, "NULL;", strlen("NULL;"));
+				strlcat(camera_info, "NULL;", sizeof(camera_info));
 				break;
 		}
 
-		strncat(camera_info, "COREVOLT=", strlen("COREVOLT="));
+		strlcat(camera_info, "COREVOLT=", sizeof(camera_info));
 		switch(cam_info->core_voltage) {
 			case CAM_INFO_CORE_VOLT_NONE :
-				strncat(camera_info, "N;", strlen("N;"));
+				strlcat(camera_info, "N;", sizeof(camera_info));
 				break;
 			case CAM_INFO_CORE_VOLT_USE :
-				strncat(camera_info, "Y;", strlen("Y;"));
+				strlcat(camera_info, "Y;", sizeof(camera_info));
 				break;
 			default :
-				strncat(camera_info, "NULL;", strlen("NULL;"));
+				strlcat(camera_info, "NULL;", sizeof(camera_info));
 				break;
 		}
 
-		strncat(camera_info, "UPGRADE=", strlen("UPGRADE="));
+		strlcat(camera_info, "UPGRADE=", sizeof(camera_info));
 		switch(cam_info->upgrade) {
 			case CAM_INFO_FW_UPGRADE_NONE :
-				strncat(camera_info, "N;", strlen("N;"));
+				strlcat(camera_info, "N;", sizeof(camera_info));
 				break;
 			case CAM_INFO_FW_UPGRADE_SYSFS :
-				strncat(camera_info, "SYSFS;", strlen("SYSFS;"));
+				strlcat(camera_info, "SYSFS;", sizeof(camera_info));
 				break;
 			case CAM_INFO_FW_UPGRADE_CAMON :
-				strncat(camera_info, "CAMON;", strlen("CAMON;"));
+				strlcat(camera_info, "CAMON;", sizeof(camera_info));
 				break;
 			default :
-				strncat(camera_info, "NULL;", strlen("NULL;"));
+				strlcat(camera_info, "NULL;", sizeof(camera_info));
 				break;
 		}
 
-		strncat(camera_info, "FWWRITE=", strlen("FWWRITE="));
+		strlcat(camera_info, "FWWRITE=", sizeof(camera_info));
 		switch(cam_info->fw_write) {
 			case CAM_INFO_FW_WRITE_NONE :
-				strncat(camera_info, "N;", strlen("N;"));
+				strlcat(camera_info, "N;", sizeof(camera_info));
 				break;
 			case CAM_INFO_FW_WRITE_OS :
-				strncat(camera_info, "OS;", strlen("OS;"));
+				strlcat(camera_info, "OS;", sizeof(camera_info));
 				break;
 			case CAM_INFO_FW_WRITE_SD :
-				strncat(camera_info, "SD;", strlen("SD;"));
+				strlcat(camera_info, "SD;", sizeof(camera_info));
 				break;
 			case CAM_INFO_FW_WRITE_ALL :
-				strncat(camera_info, "ALL;", strlen("ALL;"));
+				strlcat(camera_info, "ALL;", sizeof(camera_info));
 				break;
 			default :
-				strncat(camera_info, "NULL;", strlen("NULL;"));
+				strlcat(camera_info, "NULL;", sizeof(camera_info));
 				break;
 		}
 
-		strncat(camera_info, "FWDUMP=", strlen("FWDUMP="));
+		strlcat(camera_info, "FWDUMP=", sizeof(camera_info));
 		switch(cam_info->fw_dump) {
 			case CAM_INFO_FW_DUMP_NONE :
-				strncat(camera_info, "N;", strlen("N;"));
+				strlcat(camera_info, "N;", sizeof(camera_info));
 				break;
 			case CAM_INFO_FW_DUMP_USE :
-				strncat(camera_info, "Y;", strlen("Y;"));
+				strlcat(camera_info, "Y;", sizeof(camera_info));
 				break;
 			default :
-				strncat(camera_info, "NULL;", strlen("NULL;"));
+				strlcat(camera_info, "NULL;", sizeof(camera_info));
 				break;
 		}
 
-		strncat(camera_info, "CC=", strlen("CC="));
+		strlcat(camera_info, "CC=", sizeof(camera_info));
 		switch(cam_info->companion) {
 			case CAM_INFO_COMPANION_NONE :
-				strncat(camera_info, "N;", strlen("N;"));
+				strlcat(camera_info, "N;", sizeof(camera_info));
 				break;
 			case CAM_INFO_COMPANION_USE :
-				strncat(camera_info, "Y;", strlen("Y;"));
+				strlcat(camera_info, "Y;", sizeof(camera_info));
 				break;
 			default :
-				strncat(camera_info, "NULL;", strlen("NULL;"));
+				strlcat(camera_info, "NULL;", sizeof(camera_info));
 				break;
 		}
 
-		strncat(camera_info, "OIS=", strlen("OIS="));
+		strlcat(camera_info, "OIS=", sizeof(camera_info));
 		switch(cam_info->ois) {
 			case CAM_INFO_OIS_NONE :
-				strncat(camera_info, "N;", strlen("N;"));
+				strlcat(camera_info, "N;", sizeof(camera_info));
 				break;
 			case CAM_INFO_OIS_USE :
-				strncat(camera_info, "Y;", strlen("Y;"));
+				strlcat(camera_info, "Y;", sizeof(camera_info));
 				break;
 			default :
-				strncat(camera_info, "NULL;", strlen("NULL;"));
+				strlcat(camera_info, "NULL;", sizeof(camera_info));
 				break;
 		}
 
-		strncat(camera_info, "VALID=", strlen("VALID="));
+		strlcat(camera_info, "VALID=", sizeof(camera_info));
 		switch(cam_info->valid) {
 			case CAM_INFO_INVALID :
-				strncat(camera_info, "N;", strlen("N;"));
+				strlcat(camera_info, "N;", sizeof(camera_info));
 				break;
 			case CAM_INFO_VALID :
-				strncat(camera_info, "Y;", strlen("Y;"));
+				strlcat(camera_info, "Y;", sizeof(camera_info));
 				break;
 			default :
-				strncat(camera_info, "NULL;", strlen("NULL;"));
+				strlcat(camera_info, "NULL;", sizeof(camera_info));
 				break;
 		}
 

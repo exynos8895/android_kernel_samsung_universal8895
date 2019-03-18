@@ -69,7 +69,7 @@ void score_dmsg_concate(const char *fmt, ...)
 	va_end(ap);
 
 	copy_len = min((DEBUG_SENTENCE_MAX - score_debug.dsentence_pos), strlen(term));
-	strncpy(score_debug.dsentence + score_debug.dsentence_pos, term, copy_len);
+	memcpy(score_debug.dsentence + score_debug.dsentence_pos, term, copy_len);
 	score_debug.dsentence_pos += copy_len;
 }
 
