@@ -4018,7 +4018,7 @@ wl_android_set_auto_channel(struct net_device *dev, const char* cmd_str,
 done:
 	if ((retry == 0) || (ret < 0)) {
 		/* On failure, fallback to a default channel */
-		if ((band == WLC_BAND_5G)) {
+		if (band == WLC_BAND_5G) {
 			channel = APCS_DEFAULT_5G_CH;
 		} else {
 			channel = APCS_DEFAULT_2G_CH;
@@ -7931,8 +7931,10 @@ wl_genl_send_msg(
 	int pid = 0;
 	u8 *ptr = NULL, *p = NULL;
 	u32 tot_len = sizeof(bcm_event_hdr_t) + subhdr_len + len;
-	u16 kflags = in_atomic() ? GFP_ATOMIC : GFP_KERNEL;
+	gfp_t kflags;
 	struct bcm_cfg80211 *cfg = wl_get_cfg(ndev);
+
+	kflags = in_atomic() ? GFP_ATOMIC : GFP_KERNEL;
 
 	WL_DBG(("Enter \n"));
 
