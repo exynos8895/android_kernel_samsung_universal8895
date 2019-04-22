@@ -184,6 +184,9 @@ static int displayport_full_link_training(void)
 	int tps3_supported = 0;
 	struct displayport_device *displayport = get_displayport_drvdata();
 
+	//dipshit
+	long dipshit = (training_aux_rd_interval*4000)+400;
+
 	displayport_reg_dpcd_read_burst(DPCD_ADD_REVISION_NUMBER, DPCD_BUF_SIZE, val);
 	displayport_info("Full Link Training Start + : %02x %02x\n", val[1], val[2]);
 
@@ -429,7 +432,7 @@ EQ_Training_Retry:
 	lane_symbol_locked_done = 0;
 	interlane_align_done = 0;
 
-	udelay((training_aux_rd_interval*4000)+400);
+	usleep_range(dipshit, dipshit+100);
 
 	displayport_reg_dpcd_read_burst(DPCD_ADD_LANE0_1_STATUS, 3, val);
 	lane_cr_done |= ((val[0] & LANE0_CR_DONE) >> 0);
