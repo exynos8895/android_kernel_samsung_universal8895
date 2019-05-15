@@ -80,6 +80,8 @@ struct scan_control {
 	 */
 	struct mem_cgroup *target_mem_cgroup;
 
+	int swappiness;
+
 	/* Scan (total_size >> priority) pages at once */
 	int priority;
 
@@ -1253,7 +1255,7 @@ unsigned long reclaim_clean_pages_from_list(struct zone *zone,
 
 	list_for_each_entry_safe(page, next, page_list, lru) {
 		if (page_is_file_cache(page) && !PageDirty(page) &&
-		    !isolated_balloon_page(page)) {
+		    !__PageMovable(page)) {
 			ClearPageActive(page);
 			list_move(&page->lru, &clean_pages);
 		}
@@ -2057,7 +2059,8 @@ static void get_scan_count(struct lruvec *lruvec, int swappiness,
 	 * There is enough inactive page cache, do not reclaim
 	 * anything from the anonymous working set right now.
 	 */
-	if (!inactive_file_is_low(lruvec)) {
+	if (!IS_ENABLED(CONFIG_BALANCE_ANON_FILE_RECLAIM) &&
+			!inactive_file_is_low(lruvec)) {
 		scan_balance = SCAN_FILE;
 		goto out;
 	}
@@ -2824,7 +2827,16 @@ unsigned long try_to_free_pages(struct zonelist *zonelist, int order,
 		.priority = DEF_PRIORITY,
 		.may_writepage = !laptop_mode,
 		.may_unmap = 1,
+#ifdef CONFIG_DIRECT_RECLAIM_FILE_PAGES_ONLY
+		.may_swap = 0,
+#else
 		.may_swap = 1,
+#endif
+#ifdef CONFIG_ZSWAP
+		.swappiness = vm_swappiness / 2,
+#else
+		.swappiness = vm_swappiness,
+#endif
 	};
 
 	/*
@@ -2859,6 +2871,7 @@ unsigned long mem_cgroup_shrink_node_zone(struct mem_cgroup *memcg,
 		.may_writepage = !laptop_mode,
 		.may_unmap = 1,
 		.may_swap = !noswap,
+		.swappiness = vm_swappiness,
 	};
 	struct lruvec *lruvec = mem_cgroup_zone_lruvec(zone, memcg);
 	int swappiness = mem_cgroup_swappiness(memcg);
@@ -2903,6 +2916,7 @@ unsigned long try_to_free_mem_cgroup_pages(struct mem_cgroup *memcg,
 		.may_writepage = !laptop_mode,
 		.may_unmap = 1,
 		.may_swap = may_swap,
+		.swappiness = vm_swappiness,
 	};
 
 	/*
@@ -2947,18 +2961,23 @@ static void age_active_anon(struct zone *zone, struct scan_control *sc)
 	} while (memcg);
 }
 
-static bool zone_balanced(struct zone *zone, int order,
-			  unsigned long balance_gap, int classzone_idx)
+static bool zone_balanced(struct zone *zone, int order, bool highorder,
+			unsigned long balance_gap, int classzone_idx)
 {
-	if (!zone_watermark_ok_safe(zone, order, high_wmark_pages(zone) +
-				    balance_gap, classzone_idx))
-		return false;
+	unsigned long mark = high_wmark_pages(zone) + balance_gap;
 
-	if (IS_ENABLED(CONFIG_COMPACTION) && order && compaction_suitable(zone,
-				order, 0, classzone_idx) == COMPACT_SKIPPED)
-		return false;
+	/*
+	 * When checking from pgdat_balanced(), kswapd should stop and sleep
+	 * when it reaches the high order-0 watermark and let kcompactd take
+	 * over. Other callers such as wakeup_kswapd() want to determine the
+	 * true high-order watermark.
+	 */
+	if (IS_ENABLED(CONFIG_COMPACTION) && !highorder) {
+		mark += (1UL << order);
+		order = 0;
+	}
 
-	return true;
+	return zone_watermark_ok_safe(zone, order, mark, classzone_idx);
 }
 
 /*
@@ -3008,14 +3027,18 @@ static bool pgdat_balanced(pg_data_t *pgdat, int order, int classzone_idx)
 			continue;
 		}
 
-		if (zone_balanced(zone, order, 0, i))
+		if (zone_balanced(zone, order, false, 0, i))
 			balanced_pages += zone->managed_pages;
 		else if (!order)
 			return false;
 	}
 
 	if (order)
+#ifdef CONFIG_TIGHT_PGDAT_BALANCE
+		return balanced_pages >= (managed_pages >> 1);
+#else
 		return balanced_pages >= (managed_pages >> 2);
+#endif
 	else
 		return true;
 }
@@ -3062,26 +3085,13 @@ static bool prepare_kswapd_sleep(pg_data_t *pgdat, int order, long remaining,
  */
 static bool kswapd_shrink_zone(struct zone *zone,
 			       int classzone_idx,
-			       struct scan_control *sc,
-			       unsigned long *nr_attempted)
+			       struct scan_control *sc)
 {
-	int testorder = sc->order;
 	unsigned long balance_gap;
 	bool lowmem_pressure;
 
 	/* Reclaim above the high watermark. */
 	sc->nr_to_reclaim = max(SWAP_CLUSTER_MAX, high_wmark_pages(zone));
-
-	/*
-	 * Kswapd reclaims only single pages with compaction enabled. Trying
-	 * too hard to reclaim until contiguous free pages have become
-	 * available can hurt performance by evicting too much useful data
-	 * from memory. Do not reclaim more than needed for compaction.
-	 */
-	if (IS_ENABLED(CONFIG_COMPACTION) && sc->order &&
-			compaction_suitable(zone, sc->order, 0, classzone_idx)
-							!= COMPACT_SKIPPED)
-		testorder = 0;
 
 	/*
 	 * We put equal pressure on every zone, unless one zone has way too
@@ -3097,14 +3107,11 @@ static bool kswapd_shrink_zone(struct zone *zone,
 	 * reclaim is necessary
 	 */
 	lowmem_pressure = (buffer_heads_over_limit && is_highmem(zone));
-	if (!lowmem_pressure && zone_balanced(zone, testorder,
+	if (!lowmem_pressure && zone_balanced(zone, sc->order, false,
 						balance_gap, classzone_idx))
 		return true;
 
 	shrink_zone(zone, sc, zone_idx(zone) == classzone_idx);
-
-	/* Account for the number of pages attempted to reclaim */
-	*nr_attempted += sc->nr_to_reclaim;
 
 	clear_bit(ZONE_WRITEBACK, &zone->flags);
 
@@ -3115,7 +3122,7 @@ static bool kswapd_shrink_zone(struct zone *zone,
 	 * waits.
 	 */
 	if (zone_reclaimable(zone) &&
-	    zone_balanced(zone, testorder, 0, classzone_idx)) {
+	    zone_balanced(zone, sc->order, false, 0, classzone_idx)) {
 		clear_bit(ZONE_CONGESTED, &zone->flags);
 		clear_bit(ZONE_DIRTY, &zone->flags);
 	}
@@ -3127,7 +3134,7 @@ static bool kswapd_shrink_zone(struct zone *zone,
  * For kswapd, balance_pgdat() will work across all this node's zones until
  * they are all at high_wmark_pages(zone).
  *
- * Returns the final order kswapd was reclaiming at
+ * Returns the highest zone idx kswapd was reclaiming at
  *
  * There is special handling here for zones which are full of pinned pages.
  * This can happen if the pages are all mlocked, or if they are all used by
@@ -3144,8 +3151,7 @@ static bool kswapd_shrink_zone(struct zone *zone,
  * interoperates with the page allocator fallback scheme to ensure that aging
  * of pages is balanced across the zones.
  */
-static unsigned long balance_pgdat(pg_data_t *pgdat, int order,
-							int *classzone_idx)
+static int balance_pgdat(pg_data_t *pgdat, int order, int classzone_idx)
 {
 	int i;
 	int end_zone = 0;	/* Inclusive.  0 = ZONE_DMA */
@@ -3158,13 +3164,12 @@ static unsigned long balance_pgdat(pg_data_t *pgdat, int order,
 		.may_writepage = !laptop_mode,
 		.may_unmap = 1,
 		.may_swap = 1,
+		.swappiness = vm_swappiness,
 	};
 	count_vm_event(PAGEOUTRUN);
 
 	do {
-		unsigned long nr_attempted = 0;
 		bool raise_priority = true;
-		bool pgdat_needs_compaction = (order > 0);
 
 		sc.nr_reclaimed = 0;
 
@@ -3199,7 +3204,7 @@ static unsigned long balance_pgdat(pg_data_t *pgdat, int order,
 				break;
 			}
 
-			if (!zone_balanced(zone, order, 0, 0)) {
+			if (!zone_balanced(zone, order, false, 0, 0)) {
 				end_zone = i;
 				break;
 			} else {
@@ -3214,24 +3219,6 @@ static unsigned long balance_pgdat(pg_data_t *pgdat, int order,
 
 		if (i < 0)
 			goto out;
-
-		for (i = 0; i <= end_zone; i++) {
-			struct zone *zone = pgdat->node_zones + i;
-
-			if (!populated_zone(zone))
-				continue;
-
-			/*
-			 * If any zone is currently balanced then kswapd will
-			 * not call compaction as it is expected that the
-			 * necessary pages are already available.
-			 */
-			if (pgdat_needs_compaction &&
-					zone_watermark_ok(zone, order,
-						low_wmark_pages(zone),
-						*classzone_idx, 0))
-				pgdat_needs_compaction = false;
-		}
 
 		/*
 		 * If we're getting trouble reclaiming, start doing writepage
@@ -3276,8 +3263,7 @@ static unsigned long balance_pgdat(pg_data_t *pgdat, int order,
 			 * that that high watermark would be met at 100%
 			 * efficiency.
 			 */
-			if (kswapd_shrink_zone(zone, end_zone,
-					       &sc, &nr_attempted))
+			if (kswapd_shrink_zone(zone, end_zone, &sc))
 				raise_priority = false;
 		}
 
@@ -3290,27 +3276,9 @@ static unsigned long balance_pgdat(pg_data_t *pgdat, int order,
 				pfmemalloc_watermark_ok(pgdat))
 			wake_up_all(&pgdat->pfmemalloc_wait);
 
-		/*
-		 * Fragmentation may mean that the system cannot be rebalanced
-		 * for high-order allocations in all zones. If twice the
-		 * allocation size has been reclaimed and the zones are still
-		 * not balanced then recheck the watermarks at order-0 to
-		 * prevent kswapd reclaiming excessively. Assume that a
-		 * process requested a high-order can direct reclaim/compact.
-		 */
-		if (order && sc.nr_reclaimed >= 2UL << order)
-			order = sc.order = 0;
-
 		/* Check if kswapd should be suspending */
 		if (try_to_freeze() || kthread_should_stop())
 			break;
-
-		/*
-		 * Compact if necessary and kswapd is reclaiming at least the
-		 * high watermark number of pages as requsted
-		 */
-		if (pgdat_needs_compaction && sc.nr_reclaimed > nr_attempted)
-			compact_pgdat(pgdat, order);
 
 		/*
 		 * Raise priority if scanning rate is too low or there was no
@@ -3319,20 +3287,18 @@ static unsigned long balance_pgdat(pg_data_t *pgdat, int order,
 		if (raise_priority || !sc.nr_reclaimed)
 			sc.priority--;
 	} while (sc.priority >= 1 &&
-		 !pgdat_balanced(pgdat, order, *classzone_idx));
+			!pgdat_balanced(pgdat, order, classzone_idx));
 
 out:
 	/*
-	 * Return the order we were reclaiming at so prepare_kswapd_sleep()
-	 * makes a decision on the order we were last reclaiming at. However,
-	 * if another caller entered the allocator slow path while kswapd
-	 * was awake, order will remain at the higher level
+	 * Return the highest zone idx we were reclaiming at so
+	 * prepare_kswapd_sleep() makes the same decisions as here.
 	 */
-	*classzone_idx = end_zone;
-	return order;
+	return end_zone;
 }
 
-static void kswapd_try_to_sleep(pg_data_t *pgdat, int order, int classzone_idx)
+static void kswapd_try_to_sleep(pg_data_t *pgdat, int order,
+				int classzone_idx, int balanced_classzone_idx)
 {
 	long remaining = 0;
 	DEFINE_WAIT(wait);
@@ -3343,7 +3309,22 @@ static void kswapd_try_to_sleep(pg_data_t *pgdat, int order, int classzone_idx)
 	prepare_to_wait(&pgdat->kswapd_wait, &wait, TASK_INTERRUPTIBLE);
 
 	/* Try to sleep for a short interval */
-	if (prepare_kswapd_sleep(pgdat, order, remaining, classzone_idx)) {
+	if (prepare_kswapd_sleep(pgdat, order, remaining,
+						balanced_classzone_idx)) {
+		/*
+		 * Compaction records what page blocks it recently failed to
+		 * isolate pages from and skips them in the future scanning.
+		 * When kswapd is going to sleep, it is reasonable to assume
+		 * that pages and compaction may succeed so reset the cache.
+		 */
+		reset_isolation_suitable(pgdat);
+
+		/*
+		 * We have freed the memory, now we should compact it to make
+		 * allocation of the requested order possible.
+		 */
+		wakeup_kcompactd(pgdat, order, classzone_idx);
+
 		remaining = schedule_timeout(HZ/10);
 		finish_wait(&pgdat->kswapd_wait, &wait);
 		prepare_to_wait(&pgdat->kswapd_wait, &wait, TASK_INTERRUPTIBLE);
@@ -3353,7 +3334,8 @@ static void kswapd_try_to_sleep(pg_data_t *pgdat, int order, int classzone_idx)
 	 * After a short sleep, check if it was a premature sleep. If not, then
 	 * go fully to sleep until explicitly woken up.
 	 */
-	if (prepare_kswapd_sleep(pgdat, order, remaining, classzone_idx)) {
+	if (prepare_kswapd_sleep(pgdat, order, remaining,
+						balanced_classzone_idx)) {
 		trace_mm_vmscan_kswapd_sleep(pgdat->node_id);
 
 		/*
@@ -3365,14 +3347,6 @@ static void kswapd_try_to_sleep(pg_data_t *pgdat, int order, int classzone_idx)
 		 * them before going back to sleep.
 		 */
 		set_pgdat_percpu_threshold(pgdat, calculate_normal_threshold);
-
-		/*
-		 * Compaction records what page blocks it recently failed to
-		 * isolate pages from and skips them in the future scanning.
-		 * When kswapd is going to sleep, it is reasonable to assume
-		 * that pages and compaction may succeed so reset the cache.
-		 */
-		reset_isolation_suitable(pgdat);
 
 		if (!kthread_should_stop())
 			schedule();
@@ -3403,7 +3377,6 @@ static void kswapd_try_to_sleep(pg_data_t *pgdat, int order, int classzone_idx)
 static int kswapd(void *p)
 {
 	unsigned long order, new_order;
-	unsigned balanced_order;
 	int classzone_idx, new_classzone_idx;
 	int balanced_classzone_idx;
 	pg_data_t *pgdat = (pg_data_t*)p;
@@ -3436,24 +3409,19 @@ static int kswapd(void *p)
 	set_freezable();
 
 	order = new_order = 0;
-	balanced_order = 0;
 	classzone_idx = new_classzone_idx = pgdat->nr_zones - 1;
 	balanced_classzone_idx = classzone_idx;
 	for ( ; ; ) {
 		bool ret;
 
 		/*
-		 * If the last balance_pgdat was unsuccessful it's unlikely a
-		 * new request of a similar or harder type will succeed soon
-		 * so consider going to sleep on the basis we reclaimed at
+		 * While we were reclaiming, there might have been another
+		 * wakeup, so check the values.
 		 */
-		if (balanced_classzone_idx >= new_classzone_idx &&
-					balanced_order == new_order) {
-			new_order = pgdat->kswapd_max_order;
-			new_classzone_idx = pgdat->classzone_idx;
-			pgdat->kswapd_max_order =  0;
-			pgdat->classzone_idx = pgdat->nr_zones - 1;
-		}
+		new_order = pgdat->kswapd_max_order;
+		new_classzone_idx = pgdat->classzone_idx;
+		pgdat->kswapd_max_order =  0;
+		pgdat->classzone_idx = pgdat->nr_zones - 1;
 
 		if (order < new_order || classzone_idx > new_classzone_idx) {
 			/*
@@ -3463,7 +3431,7 @@ static int kswapd(void *p)
 			order = new_order;
 			classzone_idx = new_classzone_idx;
 		} else {
-			kswapd_try_to_sleep(pgdat, balanced_order,
+			kswapd_try_to_sleep(pgdat, order, classzone_idx,
 						balanced_classzone_idx);
 			order = pgdat->kswapd_max_order;
 			classzone_idx = pgdat->classzone_idx;
@@ -3483,9 +3451,8 @@ static int kswapd(void *p)
 		 */
 		if (!ret) {
 			trace_mm_vmscan_kswapd_wake(pgdat->node_id, order);
-			balanced_classzone_idx = classzone_idx;
-			balanced_order = balance_pgdat(pgdat, order,
-						&balanced_classzone_idx);
+			balanced_classzone_idx = balance_pgdat(pgdat, order,
+								classzone_idx);
 		}
 	}
 
@@ -3515,7 +3482,7 @@ void wakeup_kswapd(struct zone *zone, int order, enum zone_type classzone_idx)
 	}
 	if (!waitqueue_active(&pgdat->kswapd_wait))
 		return;
-	if (zone_balanced(zone, order, 0, 0))
+	if (zone_balanced(zone, order, true, 0, 0))
 		return;
 
 	trace_mm_vmscan_wakeup_kswapd(pgdat->node_id, zone_idx(zone), order);
@@ -3541,6 +3508,7 @@ unsigned long shrink_all_memory(unsigned long nr_to_reclaim)
 		.may_writepage = 1,
 		.may_unmap = 1,
 		.may_swap = 1,
+		.swappiness = vm_swappiness,
 		.hibernation_mode = 1,
 	};
 	struct zonelist *zonelist = node_zonelist(numa_node_id(), sc.gfp_mask);
@@ -3724,6 +3692,7 @@ static int __zone_reclaim(struct zone *zone, gfp_t gfp_mask, unsigned int order)
 		.nr_to_reclaim = max(nr_pages, SWAP_CLUSTER_MAX),
 		.gfp_mask = (gfp_mask = memalloc_noio_flags(gfp_mask)),
 		.order = order,
+		.swappiness = vm_swappiness,
 		.priority = ZONE_RECLAIM_PRIORITY,
 		.may_writepage = !!(zone_reclaim_mode & RECLAIM_WRITE),
 		.may_unmap = !!(zone_reclaim_mode & RECLAIM_UNMAP),

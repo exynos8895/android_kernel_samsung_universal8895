@@ -2,6 +2,11 @@ config COMMON_CLK_SAMSUNG
 	bool
 	select COMMON_CLK
 
+config COMPOSITE_CLK_SAMSUNG
+	bool
+	default y
+	depends on ARCH_EXYNOS8 || ARCH_EXYNOS7
+
 config S3C2410_COMMON_CLK
 	bool
 	select COMMON_CLK_SAMSUNG

@@ -343,6 +343,8 @@ extern int of_machine_is_compatible(const char *compat);
 extern int of_add_property(struct device_node *np, struct property *prop);
 extern int of_remove_property(struct device_node *np, struct property *prop);
 extern int of_update_property(struct device_node *np, struct property *newprop);
+extern bool of_find_n_match_cpu_property(struct device_node *cpun,
+			const char *prop_name, int cpu, unsigned int *thread);
 
 /* For updating the device tree at runtime */
 #define OF_RECONFIG_ATTACH_NODE		0x0001
@@ -621,6 +623,12 @@ static inline int of_alias_get_highest_id(const char *stem)
 static inline int of_machine_is_compatible(const char *compat)
 {
 	return 0;
+}
+
+static inline bool of_find_n_match_cpu_property(struct device_node *cpun,
+			const char *prop_name, int cpu, unsigned int *thread)
+{
+	return false;
 }
 
 static inline bool of_console_check(const struct device_node *dn, const char *name, int index)

@@ -23,12 +23,9 @@
 #include <asm/assembler.h>
 #include <asm/asm-offsets.h>
 #include <asm/hwcap.h>
-#include <asm/pgtable-hwdef.h>
 #include <asm/pgtable.h>
 #include <asm/cpufeature.h>
 #include <asm/alternative.h>
-
-#include "proc-macros.S"
 
 #ifdef CONFIG_ARM64_64K_PAGES
 #define TCR_TG_FLAGS	TCR_TG0_64K | TCR_TG1_64K
@@ -74,12 +71,15 @@ ENTRY(cpu_do_suspend)
 	mrs	x10, mdscr_el1
 	mrs	x11, oslsr_el1
 	mrs	x12, sctlr_el1
+	mrs	x13, tpidr_el1
+	mrs	x14, sp_el0
 	stp	x2, x3, [x0]
 	stp	x4, x5, [x0, #16]
 	stp	x6, x7, [x0, #32]
 	stp	x8, x9, [x0, #48]
 	stp	x10, x11, [x0, #64]
-	str	x12, [x0, #80]
+	stp	x12, x13, [x0, #80]
+	str	x14, [x0, #96]
 	ret
 ENDPROC(cpu_do_suspend)
 
@@ -102,7 +102,8 @@ ENTRY(cpu_do_resume)
 	ldp	x6, x7, [x0, #32]
 	ldp	x8, x9, [x0, #48]
 	ldp	x10, x11, [x0, #64]
-	ldr	x12, [x0, #80]
+	ldp	x12, x13, [x0, #80]
+	ldr	x14, [x0, #96]
 	msr	tpidr_el0, x2
 	msr	tpidrro_el0, x3
 	msr	contextidr_el1, x4
@@ -114,6 +115,8 @@ ENTRY(cpu_do_resume)
 	msr	tcr_el1, x8
 	msr	vbar_el1, x9
 	msr	mdscr_el1, x10
+	msr	tpidr_el1, x13
+	msr	sp_el0, x14
 	/*
 	 * Restore oslsr_el1 by writing oslar_el1
 	 */
@@ -135,24 +138,46 @@ ENDPROC(cpu_do_resume)
  *	- pgd_phys - physical address of new TTB
  */
 ENTRY(cpu_do_switch_mm)
+	mrs	x2, ttbr1_el1
 	mmid	x1, x1				// get mm->context.id
-	bfi	x0, x1, #48, #16		// set the ASID
-	msr	ttbr0_el1, x0			// set TTBR0
+#ifdef CONFIG_ARM64_SW_TTBR0_PAN
+	bfi	x0, x1, #48, #16		// set the ASID field in TTBR0
+#endif
+	bfi	x2, x1, #48, #16		// set the ASID
+	msr	ttbr1_el1, x2			// in TTBR1 (since TCR.A1 is set)
 	isb
-alternative_if_not ARM64_WORKAROUND_CAVIUM_27456
-	ret
-	nop
-	nop
-	nop
-alternative_else
-	ic	iallu
-	dsb	nsh
+	msr	ttbr0_el1, x0			// now update TTBR0
 	isb
-	ret
-alternative_endif
+	b	post_ttbr_update_workaround	// Back to C code...
 ENDPROC(cpu_do_switch_mm)
 
-	.section ".text.init", #alloc, #execinstr
+	.pushsection ".idmap.text", "ax"
+/*
+ * void idmap_cpu_replace_ttbr1(phys_addr_t new_pgd)
+ *
+ * This is the low-level counterpart to cpu_replace_ttbr1, and should not be
+ * called by anything else. It can only be executed from a TTBR0 mapping.
+ */
+ENTRY(idmap_cpu_replace_ttbr1)
+	mrs	x2, daif
+	msr	daifset, #0xf
+
+	adrp	x1, empty_zero_page
+	msr	ttbr1_el1, x1
+	isb
+
+	tlbi	vmalle1
+	dsb	nsh
+	isb
+
+	msr	ttbr1_el1, x0
+	isb
+
+	msr	daif, x2
+
+	ret
+ENDPROC(idmap_cpu_replace_ttbr1)
+	.popsection
 
 /*
  *	__cpu_setup
@@ -203,7 +228,7 @@ ENTRY(__cpu_setup)
 	 * both user and kernel.
 	 */
 	ldr	x10, =TCR_TxSZ(VA_BITS) | TCR_CACHE_FLAGS | TCR_SMP_FLAGS | \
-			TCR_TG_FLAGS | TCR_ASID16 | TCR_TBI0
+			TCR_TG_FLAGS | TCR_ASID16 | TCR_TBI0 | TCR_A1
 	tcr_set_idmap_t0sz	x10, x9
 
 	/*
@@ -239,9 +264,9 @@ ENDPROC(__cpu_setup)
 	 *       CE0      XWHW CZ     ME TEEA S
 	 * .... .IEE .... NEAI TE.I ..AD DEN0 ACAM
 	 * 0011 0... 1101 ..0. ..0. 10.. .0.. .... < hardware reserved
-	 * .... .1.. .... 01.1 11.1 ..01 0.01 1101 < software settings
+	 * .... .1.. .... 01.1 01.1 ..01 0.01 1101 < software settings
 	 */
 	.type	crval, #object
 crval:
 	.word	0xfcffffff			// clear
-	.word	0x34d5d91d			// set
+	.word	0x34d5591d			// set

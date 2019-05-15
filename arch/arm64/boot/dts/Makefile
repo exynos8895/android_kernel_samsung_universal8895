@@ -1,23 +1,11 @@
-dts-dirs += altera
-dts-dirs += amd
-dts-dirs += apm
-dts-dirs += arm
-dts-dirs += broadcom
-dts-dirs += cavium
+# SPDX-License-Identifier: GPL-2.0
 dts-dirs += exynos
-dts-dirs += freescale
-dts-dirs += hisilicon
-dts-dirs += marvell
-dts-dirs += mediatek
-dts-dirs += qcom
-dts-dirs += rockchip
-dts-dirs += sprd
-dts-dirs += xilinx
 
-subdir-y	:= $(dts-dirs)
+subdir-y          := $(dts-dirs)
 
-dtstree		:= $(srctree)/$(src)
+always            := $(DTB_LIST)
 
-dtb-$(CONFIG_OF_ALL_DTBS) := $(patsubst $(dtstree)/%.dts,%.dtb, $(foreach d,$(dts-dirs), $(wildcard $(dtstree)/$(d)/*.dts)))
+targets += dtbs
+dtbs: $(addprefix $(obj)/, $(DTB_LIST))
 
-always		:= $(dtb-y)
+clean-files       := exynos/*.dtb *.dtb*

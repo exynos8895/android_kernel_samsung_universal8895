@@ -38,6 +38,11 @@
 #include <asm/irq.h>
 #include <asm/uaccess.h>
 
+#define BT43XX_LINE 1
+
+#if defined(CONFIG_BCM4361)
+#define WIFI_UART_PORT_LINE 15
+#endif
 /*
  * This is used to lock changes in serial line configuration.
  */
@@ -94,6 +99,9 @@ static void __uart_start(struct tty_struct *tty)
 {
 	struct uart_state *state = tty->driver_data;
 	struct uart_port *port = state->uart_port;
+
+	if (port->ops->wake_peer)
+		port->ops->wake_peer(port);
 
 	if (!uart_tx_stopped(port))
 		port->ops->start_tx(port);
@@ -473,8 +481,23 @@ static void uart_change_speed(struct tty_struct *tty, struct uart_state *state,
 
 	/* reset sw-assisted CTS flow control based on (possibly) new mode */
 	hw_stopped = uport->hw_stopped;
-	uport->hw_stopped = uart_softcts_mode(uport) &&
-				!(uport->ops->get_mctrl(uport) & TIOCM_CTS);
+	if(uart_softcts_mode(uport) &&
+				!(uport->ops->get_mctrl(uport) & TIOCM_CTS))
+	{
+	
+#if defined(CONFIG_BCM4361)
+		if ((uport->line != BT43XX_LINE) && (uport->line != WIFI_UART_PORT_LINE))	
+			uport->hw_stopped = 1;
+#else				
+		if(uport->line != BT43XX_LINE)
+			uport->hw_stopped = 1;
+#endif
+	}
+	else
+	{
+		uport->hw_stopped = 0;
+	}
+	
 	if (uport->hw_stopped) {
 		if (!hw_stopped)
 			uport->ops->stop_tx(uport);

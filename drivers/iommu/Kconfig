@@ -243,7 +243,7 @@ config TEGRA_IOMMU_SMMU
 
 config EXYNOS_IOMMU
 	bool "Exynos IOMMU Support"
-	depends on ARCH_EXYNOS && ARM && MMU
+	depends on ARCH_EXYNOS && MMU
 	select IOMMU_API
 	select ARM_DMA_USE_IOMMU
 	help
@@ -253,6 +253,15 @@ config EXYNOS_IOMMU
 	  address space.
 
 	  If unsure, say N here.
+
+config EXYNOS_IOVMM
+	bool "IO Virtual Memory Manager for Exynos IOMMU"
+	depends on EXYNOS_IOMMU
+	default y
+	help
+	  Supporting the users of Exynos IOMMU for allocating and mapping
+	  an IO virtual memory region with a physical memory region
+	  and managing the allocated virtual memory regions.
 
 config EXYNOS_IOMMU_DEBUG
 	bool "Debugging log for Exynos IOMMU"

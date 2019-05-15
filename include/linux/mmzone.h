@@ -65,8 +65,10 @@ enum {
 
 #ifdef CONFIG_CMA
 #  define is_migrate_cma(migratetype) unlikely((migratetype) == MIGRATE_CMA)
+#  define is_migrate_cma_page(_page) (get_pageblock_migratetype(_page) == MIGRATE_CMA)
 #else
 #  define is_migrate_cma(migratetype) false
+#  define is_migrate_cma_page(_page) false
 #endif
 
 #define for_each_migratetype_order(order, type) \
@@ -672,6 +674,12 @@ typedef struct pglist_data {
 					   mem_hotplug_begin/end() */
 	int kswapd_max_order;
 	enum zone_type classzone_idx;
+#ifdef CONFIG_COMPACTION
+	int kcompactd_max_order;
+	enum zone_type kcompactd_classzone_idx;
+	wait_queue_head_t kcompactd_wait;
+	struct task_struct *kcompactd;
+#endif
 #ifdef CONFIG_NUMA_BALANCING
 	/* Lock serializing the migrate rate limiting window */
 	spinlock_t numabalancing_migrate_lock;

@@ -38,11 +38,18 @@ int unregister_pm_notifier(struct notifier_block *nb)
 }
 EXPORT_SYMBOL_GPL(unregister_pm_notifier);
 
-int pm_notifier_call_chain(unsigned long val)
+int __pm_notifier_call_chain(unsigned long val, int nr_to_call, int *nr_calls)
 {
-	int ret = blocking_notifier_call_chain(&pm_chain_head, val, NULL);
+	int ret;
+
+	ret = __blocking_notifier_call_chain(&pm_chain_head, val, NULL,
+						nr_to_call, nr_calls);
 
 	return notifier_to_errno(ret);
+}
+int pm_notifier_call_chain(unsigned long val)
+{
+	return __pm_notifier_call_chain(val, -1, NULL);
 }
 
 /* If set, devices may be suspended and resumed asynchronously. */
@@ -599,6 +606,61 @@ power_attr(pm_freeze_timeout);
 
 #endif	/* CONFIG_FREEZER*/
 
+#ifdef CONFIG_SW_SELF_DISCHARGING
+/* Support SW_SELF_DISCHARGING (SEC_PM) */
+static char selfdischg_usage_str[] =
+	"[START]\n"
+	"/sys/power/cpufreq_self_discharging 1\n"
+	"[STOP]\n"
+	"/sys/power/cpufreq_self_discharging 0\n"
+	"[END]\n";
+
+static ssize_t selfdischg_usage_show(struct kobject *kobj,
+					struct kobj_attribute *attr,
+					char *buf)
+{
+	pr_info("%s\n", __func__);
+	return sprintf(buf, "%s", selfdischg_usage_str);
+}
+
+static struct kobj_attribute selfdischg_usage_attr = {
+	.attr	= {
+		.name = __stringify(selfdischg_usage),
+		.mode = 0440,
+	},
+	.show	= selfdischg_usage_show,
+};
+#endif /* CONFIG_SW_SELF_DISCHARGING */
+
+#if defined(CONFIG_FOTA_LIMIT)
+static char fota_limit_str[] =
+#if defined(CONFIG_ARCH_EXYNOS8)
+	"[START]\n"
+	"/sys/power/cpufreq_max_limit 1469000\n"
+	"[STOP]\n"
+	"/sys/power/cpufreq_max_limit -1\n"
+	"[END]\n";
+#else
+	"[NOT_SUPPORT]\n";
+#endif
+
+static ssize_t fota_limit_show(struct kobject *kobj,
+					struct kobj_attribute *attr,
+					char *buf)
+{
+	pr_info("%s\n", __func__);
+	return sprintf(buf, "%s", fota_limit_str);
+}
+
+static struct kobj_attribute fota_limit_attr = {
+	.attr	= {
+		.name = __stringify(fota_limit),
+		.mode = 0440,
+	},
+	.show	= fota_limit_show,
+};
+#endif /* CONFIG_FOTA_LIMIT */
+
 static struct attribute * g[] = {
 	&state_attr.attr,
 #ifdef CONFIG_PM_TRACE
@@ -626,6 +688,12 @@ static struct attribute * g[] = {
 #ifdef CONFIG_FREEZER
 	&pm_freeze_timeout_attr.attr,
 #endif
+#ifdef CONFIG_SW_SELF_DISCHARGING
+	&selfdischg_usage_attr.attr,
+#endif
+#if defined(CONFIG_FOTA_LIMIT)
+	&fota_limit_attr.attr,
+#endif /* CONFIG_FOTA_LIMIT */
 	NULL,
 };
 

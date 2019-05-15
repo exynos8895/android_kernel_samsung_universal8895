@@ -446,10 +446,21 @@ struct sock {
 	void			*sk_security;
 #endif
 	__u32			sk_mark;
+	kuid_t			sk_uid;
 #ifdef CONFIG_CGROUP_NET_CLASSID
 	u32			sk_classid;
 #endif
 	struct cg_proto		*sk_cgrp;
+    /* START_OF_KNOX_NPA */
+    uid_t           knox_uid;
+    pid_t           knox_pid;
+    uid_t	    	knox_dns_uid;
+    __be32	    	sk_udp_daddr_v6[4];
+    __be32	    	sk_udp_saddr_v6[4];
+    __be16          sk_udp_dport;
+    __be16          sk_udp_sport;
+    char 			domain_name[255];
+    /* END_OF_KNOX_NPA */
 	void			(*sk_state_change)(struct sock *sk);
 	void			(*sk_data_ready)(struct sock *sk);
 	void			(*sk_write_space)(struct sock *sk);
@@ -739,6 +750,9 @@ enum sock_flags {
 		     */
 	SOCK_FILTER_LOCKED, /* Filter cannot be changed anymore */
 	SOCK_SELECT_ERR_QUEUE, /* Wake select on error queue */
+#ifdef CONFIG_MPTCP
+	SOCK_MPTCP, /* MPTCP set on this socket */
+#endif
 };
 
 #define SK_FLAGS_TIMESTAMP ((1UL << SOCK_TIMESTAMP) | (1UL << SOCK_TIMESTAMPING_RX_SOFTWARE))
@@ -932,6 +946,17 @@ void sk_set_memalloc(struct sock *sk);
 void sk_clear_memalloc(struct sock *sk);
 
 int sk_wait_data(struct sock *sk, long *timeo, const struct sk_buff *skb);
+#ifdef CONFIG_MPTCP
+	/* START - needed for MPTCP */
+	struct sock *sk_prot_alloc(struct proto *prot, gfp_t priority, int family);
+	void sock_lock_init(struct sock *sk);
+
+	extern struct lock_class_key af_callback_keys[AF_MAX];
+	extern char *const af_family_clock_key_strings[AF_MAX+1];
+
+	#define SK_FLAGS_TIMESTAMP ((1UL << SOCK_TIMESTAMP) | (1UL << SOCK_TIMESTAMPING_RX_SOFTWARE))
+/* END - needed for MPTCP */
+#endif
 
 struct request_sock_ops;
 struct timewait_sock_ops;
@@ -1008,6 +1033,9 @@ struct proto {
 	void			(*rehash)(struct sock *sk);
 	int			(*get_port)(struct sock *sk, unsigned short snum);
 	void			(*clear_sk)(struct sock *sk, int size);
+#ifdef CONFIG_MPTCP
+	void			(*copy_sk)(struct sock *nsk, const struct sock *osk);
+#endif
 
 	/* Keeping track of sockets in use */
 #ifdef CONFIG_PROC_FS
@@ -1067,6 +1095,7 @@ struct proto {
 	void			(*destroy_cgroup)(struct mem_cgroup *memcg);
 	struct cg_proto		*(*proto_cgroup)(struct mem_cgroup *memcg);
 #endif
+	int			(*diag_destroy)(struct sock *sk, int err);
 };
 
 int proto_register(struct proto *prot, int alloc_slab);
@@ -1691,12 +1720,19 @@ static inline void sock_graft(struct sock *sk, struct socket *parent)
 	sk->sk_wq = parent->wq;
 	parent->sk = sk;
 	sk_set_socket(sk, parent);
+	sk->sk_uid = SOCK_INODE(parent)->i_uid;
 	security_sock_graft(sk, parent);
 	write_unlock_bh(&sk->sk_callback_lock);
 }
 
 kuid_t sock_i_uid(struct sock *sk);
 unsigned long sock_i_ino(struct sock *sk);
+
+static inline kuid_t sock_net_uid(const struct net *net, const struct sock *sk)
+{
+	return sk ? sk->sk_uid : make_kuid(net->user_ns, 0);
+}
+
 
 static inline u32 net_tx_rndhash(void)
 {

@@ -24,7 +24,6 @@ comment "Crypto core or helper"
 config CRYPTO_FIPS
 	bool "FIPS 200 compliance"
 	depends on (CRYPTO_ANSI_CPRNG || CRYPTO_DRBG) && !CRYPTO_MANAGER_DISABLE_TESTS
-	depends on MODULE_SIG
 	help
 	  This options enables the fips boot option which is
 	  required if you want to system to operate in a FIPS 200
@@ -123,7 +122,6 @@ config CRYPTO_MANAGER2
 	select CRYPTO_HASH2
 	select CRYPTO_BLKCIPHER2
 	select CRYPTO_PCOMP2
-	select CRYPTO_AKCIPHER2
 
 config CRYPTO_USER
 	tristate "Userspace cryptographic algorithm configuration"
@@ -213,7 +211,7 @@ config CRYPTO_AUTHENC
 
 config CRYPTO_TEST
 	tristate "Testing module"
-	depends on m
+	default n
 	select CRYPTO_MANAGER
 	help
 	  Quick & dirty crypto test module.
@@ -288,6 +286,24 @@ config CRYPTO_CBC
 	help
 	  CBC: Cipher Block Chaining mode
 	  This block cipher algorithm is required for IPSec.
+
+config CRYPTO_HEH
+	tristate "HEH support"
+	select CRYPTO_CMAC
+	select CRYPTO_ECB
+	select CRYPTO_GF128MUL
+	select CRYPTO_MANAGER
+	select CRYPTO_POLY_HASH_ARM64_CE if ARM64 && KERNEL_MODE_NEON
+	help
+	  HEH: Hash-Encrypt-Hash mode
+	  HEH is a proposed block cipher mode of operation which extends the
+	  strong pseudo-random permutation (SPRP) property of block ciphers to
+	  arbitrary-length input strings.  This provides a stronger notion of
+	  security than existing block cipher modes of operation (e.g. CBC, CTR,
+	  XTS), though it is usually less performant.  Applications include disk
+	  encryption and encryption of file names and contents.  Currently, this
+	  implementation only provides a symmetric cipher interface, so it can't
+	  yet be used as an AEAD.
 
 config CRYPTO_CTR
 	tristate "CTR support"
@@ -1641,6 +1657,18 @@ config CRYPTO_USER_API_AEAD
 
 config CRYPTO_HASH_INFO
 	bool
+
+config CRYPTO_POST_DEFERRED_INIT
+	bool "FIPS POST via deferred_module_init"
+	default n
+
+config CRYPTO_POST_LATE_INIT_SYNC
+	bool "FIPS POST via late_initcall_sync"
+	default n
+
+config CRYPTO_POST_LATE_INIT
+	bool "FIPS POST via late_initcall"
+	default n
 
 source "drivers/crypto/Kconfig"
 source crypto/asymmetric_keys/Kconfig

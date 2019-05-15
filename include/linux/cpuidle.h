@@ -120,6 +120,10 @@ struct cpuidle_driver {
 
 	/* the driver handles the cpus in cpumask */
 	struct cpumask		*cpumask;
+
+#ifdef CONFIG_CPU_IDLE_GOV_MENU
+	bool 			skip_correction;
+#endif
 };
 
 #ifdef CONFIG_CPU_IDLE
@@ -150,6 +154,8 @@ extern void cpuidle_resume(void);
 extern int cpuidle_enable_device(struct cpuidle_device *dev);
 extern void cpuidle_disable_device(struct cpuidle_device *dev);
 extern int cpuidle_play_dead(void);
+extern void disable_priv_cpuidle(void);
+extern void enable_priv_cpuidle(void);
 
 extern struct cpuidle_driver *cpuidle_get_cpu_driver(struct cpuidle_device *dev);
 #else

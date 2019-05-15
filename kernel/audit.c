@@ -70,6 +70,12 @@
 
 #include "audit.h"
 
+// [ SEC_SELINUX_PORTING_EXYNOS
+#ifdef CONFIG_SEC_AVC_LOG
+#include <linux/sec_debug.h>
+#endif
+// ] SEC_SELINUX_PORTING_EXYNOS
+
 /* No auditing will take place until audit_initialized == AUDIT_INITIALIZED.
  * (Initialization happens after skb_init is called.) */
 #define AUDIT_DISABLED		-1
@@ -80,13 +86,18 @@ static int	audit_initialized;
 #define AUDIT_OFF	0
 #define AUDIT_ON	1
 #define AUDIT_LOCKED	2
-u32		audit_enabled = AUDIT_OFF;
-u32		audit_ever_enabled = !!AUDIT_OFF;
+//u32		audit_enabled = AUDIT_OFF;
+//u32		audit_ever_enabled = !!AUDIT_OFF;
+
+// [ SEC_SELINUX_PORTING_COMMON
+u32        audit_enabled = AUDIT_ON;
+u32        audit_ever_enabled = !!AUDIT_ON;
+// ] SEC_SELINUX_PORTING_COMMON
 
 EXPORT_SYMBOL_GPL(audit_enabled);
 
 /* Default state when kernel boots without any parameters. */
-static u32	audit_default = AUDIT_OFF;
+static u32	audit_default = AUDIT_ON;
 
 /* If auditing cannot proceed, audit_failure selects what happens. */
 static u32	audit_failure = AUDIT_FAIL_PRINTK;
@@ -394,11 +405,17 @@ static void audit_printk_skb(struct sk_buff *skb)
 	struct nlmsghdr *nlh = nlmsg_hdr(skb);
 	char *data = nlmsg_data(nlh);
 
-	if (nlh->nlmsg_type != AUDIT_EOE) {
+	if (nlh->nlmsg_type != AUDIT_EOE && nlh->nlmsg_type != AUDIT_NETFILTER_CFG) {
+// [ SEC_SELINUX_PORTING_EXYNOS
+#ifdef CONFIG_SEC_AVC_LOG
+		sec_debug_avc_log("type=%d %s\n", nlh->nlmsg_type, data);
+#else
 		if (printk_ratelimit())
 			pr_notice("type=%d %s\n", nlh->nlmsg_type, data);
 		else
 			audit_log_lost("printk limit exceeded");
+#endif
+// ] SEC_SELINUX_PORTING_EXYNOS
 	}
 
 	audit_hold_skb(skb);
@@ -437,9 +454,21 @@ restart:
 		}
 		/* we might get lucky and get this in the next auditd */
 		audit_hold_skb(skb);
-	} else
+	} else {
+// [ SEC_SELINUX_PORTING_EXYNOS
+#ifdef CONFIG_SEC_AVC_LOG
+		struct nlmsghdr *nlh = nlmsg_hdr(skb);
+		char *data = NLMSG_DATA(nlh);
+	
+		if (nlh->nlmsg_type != AUDIT_EOE && nlh->nlmsg_type != AUDIT_NETFILTER_CFG) {
+			sec_debug_avc_log("%s\n", data);
+		}
+#endif
+// ] SEC_SELINUX_PORTING_EXYNOS
 		/* drop the extra reference if sent ok */
 		consume_skb(skb);
+	}
+// ] SEC_SELINUX_PORTING_EXYNOS
 }
 
 /*
@@ -870,6 +899,12 @@ static int audit_receive_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
 				return err;
 		}
 		if (s.mask & AUDIT_STATUS_PID) {
+			/* NOTE: we are using task_tgid_vnr() below because
+			 *       the s.pid value is relative to the namespace
+			 *       of the caller; at present this doesn't matter
+			 *       much since you can really only run auditd
+			 *       from the initial pid namespace, but something
+			 *       to keep in mind if this changes */
 			int new_pid = s.pid;
 
 			if ((!new_pid) && (task_tgid_vnr(current) != audit_pid))
@@ -1896,7 +1931,7 @@ void audit_log_task_info(struct audit_buffer *ab, struct task_struct *tsk)
 			 " euid=%u suid=%u fsuid=%u"
 			 " egid=%u sgid=%u fsgid=%u tty=%s ses=%u",
 			 task_ppid_nr(tsk),
-			 task_pid_nr(tsk),
+			 task_tgid_nr(tsk),
 			 from_kuid(&init_user_ns, audit_get_loginuid(tsk)),
 			 from_kuid(&init_user_ns, cred->uid),
 			 from_kgid(&init_user_ns, cred->gid),

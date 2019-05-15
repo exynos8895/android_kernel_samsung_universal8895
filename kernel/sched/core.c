@@ -74,6 +74,22 @@
 #include <linux/binfmts.h>
 #include <linux/context_tracking.h>
 #include <linux/compiler.h>
+#include <linux/exynos-ss.h>
+
+#include <linux/sched/sysctl.h>
+#include <linux/kernel.h>
+#include <linux/kthread.h>
+#include <linux/mutex.h>
+#include <linux/workqueue.h>
+#include <linux/cpufreq.h>
+#include <linux/platform_device.h>
+#include <linux/err.h>
+#include <linux/of.h>
+#include <linux/sysfs.h>
+#include <linux/sec_sysfs.h>
+#include <linux/types.h>
+#include <linux/sched/rt.h>
+#include <linux/cpumask.h>
 
 #include <asm/switch_to.h>
 #include <asm/tlb.h>
@@ -83,12 +99,18 @@
 #include <asm/paravirt.h>
 #endif
 
+#ifdef CONFIG_SEC_DEBUG
+#include <linux/sec_debug.h>
+#endif
+
 #include "sched.h"
 #include "../workqueue_internal.h"
 #include "../smpboot.h"
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/sched.h>
+
+#define HEAVY_TASK_LOAD_THRESHOLD 1000
 
 DEFINE_MUTEX(sched_domains_mutex);
 DEFINE_PER_CPU_SHARED_ALIGNED(struct rq, runqueues);
@@ -600,7 +622,8 @@ void resched_cpu(int cpu)
 	struct rq *rq = cpu_rq(cpu);
 	unsigned long flags;
 
-	raw_spin_lock_irqsave(&rq->lock, flags);
+	if (!raw_spin_trylock_irqsave(&rq->lock, flags))
+		return;
 	resched_curr(rq);
 	raw_spin_unlock_irqrestore(&rq->lock, flags);
 }
@@ -626,10 +649,7 @@ int get_nohz_timer_target(void)
 	rcu_read_lock();
 	for_each_domain(cpu, sd) {
 		for_each_cpu(i, sched_domain_span(sd)) {
-			if (cpu == i)
-				continue;
-
-			if (!idle_cpu(i) && is_housekeeping_cpu(i)) {
+			if (!idle_cpu(i) && is_housekeeping_cpu(cpu)) {
 				cpu = i;
 				goto unlock;
 			}
@@ -1296,7 +1316,7 @@ void set_task_cpu(struct task_struct *p, unsigned int new_cpu)
 
 	if (task_cpu(p) != new_cpu) {
 		if (p->sched_class->migrate_task_rq)
-			p->sched_class->migrate_task_rq(p);
+			p->sched_class->migrate_task_rq(p, new_cpu);
 		p->se.nr_migrations++;
 		perf_event_task_migrate(p);
 	}
@@ -1337,16 +1357,12 @@ static int migrate_swap_stop(void *data)
 	struct rq *src_rq, *dst_rq;
 	int ret = -EAGAIN;
 
-	if (!cpu_active(arg->src_cpu) || !cpu_active(arg->dst_cpu))
-		return -EAGAIN;
-
 	src_rq = cpu_rq(arg->src_cpu);
 	dst_rq = cpu_rq(arg->dst_cpu);
 
 	double_raw_lock(&arg->src_task->pi_lock,
 			&arg->dst_task->pi_lock);
 	double_rq_lock(src_rq, dst_rq);
-
 	if (task_cpu(arg->dst_task) != arg->dst_cpu)
 		goto unlock;
 
@@ -1380,6 +1396,8 @@ int migrate_swap(struct task_struct *cur, struct task_struct *p)
 	struct migration_swap_arg arg;
 	int ret = -EINVAL;
 
+	get_online_cpus();
+
 	arg = (struct migration_swap_arg){
 		.src_task = cur,
 		.src_cpu = task_cpu(cur),
@@ -1390,10 +1408,6 @@ int migrate_swap(struct task_struct *cur, struct task_struct *p)
 	if (arg.src_cpu == arg.dst_cpu)
 		goto out;
 
-	/*
-	 * These three tests are all lockless; this is OK since all of them
-	 * will be re-checked with proper locks held further down the line.
-	 */
 	if (!cpu_active(arg.src_cpu) || !cpu_active(arg.dst_cpu))
 		goto out;
 
@@ -1407,6 +1421,7 @@ int migrate_swap(struct task_struct *cur, struct task_struct *p)
 	ret = stop_two_cpus(arg.dst_cpu, arg.src_cpu, migrate_swap_stop, &arg);
 
 out:
+	put_online_cpus();
 	return ret;
 }
 
@@ -1971,6 +1986,20 @@ try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
 
 #ifdef CONFIG_SMP
 	/*
+	 * In some case,
+	 * target P is on current cpu (on_cpu == 1), but it's not on rq (on_rq != 1).
+	 *
+	 * P.on_cpu is set to 0 only after finishing schedule(), so this function can be in dead lock
+	 * In this case, P should be aborted and skip to wake up.
+	 */
+	if (cpu == task_cpu(current)) {
+		if (unlikely(WARN_ON(current == p))) {
+			exynos_ss_printkl((size_t)current, (size_t)current);
+			goto stat;
+		}
+	}
+
+	/*
 	 * Ensure we load p->on_cpu _after_ p->on_rq, otherwise it would be
 	 * possible to, falsely, observe p->on_cpu == 0.
 	 *
@@ -2124,7 +2153,6 @@ void __dl_clear_params(struct task_struct *p)
 static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
 {
 	p->on_rq			= 0;
-
 	p->se.on_rq			= 0;
 	p->se.exec_start		= 0;
 	p->se.sum_exec_runtime		= 0;
@@ -2132,6 +2160,30 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
 	p->se.nr_migrations		= 0;
 	p->se.vruntime			= 0;
 	INIT_LIST_HEAD(&p->se.group_node);
+/*
+ * Load-tracking only depends on SMP, FAIR_GROUP_SCHED dependency below may be
+ * removed when useful for applications beyond shares distribution (e.g.
+ * load-balance).
+ */
+#if defined(CONFIG_SMP) && defined(CONFIG_FAIR_GROUP_SCHED)
+	p->se.avg.period_contrib = 0;
+	p->se.avg.load_sum = 0;
+	p->se.avg.load_avg = 0;
+	p->se.avg.util_sum = 0;
+	p->se.avg.util_avg = 0;
+#ifdef CONFIG_SCHED_HMP
+	p->se.avg.hmp_load_sum = 0;
+	p->se.avg.hmp_load_avg = 0;
+	p->se.avg.hmp_last_up_migration = 0;
+	p->se.avg.hmp_last_down_migration = 0;
+	trace_sched_task_runnable_ratio(p, p->se.avg.hmp_load_avg);
+#endif
+	trace_sched_task_load_contrib(p, p->se.avg.load_avg);
+#endif
+
+#ifdef CONFIG_FAIR_GROUP_SCHED
+	p->se.cfs_rq			= NULL;
+#endif
 
 #ifdef CONFIG_SCHEDSTATS
 	memset(&p->se.statistics, 0, sizeof(p->se.statistics));
@@ -2401,6 +2453,12 @@ void wake_up_new_task(struct task_struct *p)
 	raw_spin_lock_irqsave(&p->pi_lock, flags);
 	/* Initialize new task's runnable average */
 	init_entity_runnable_average(&p->se);
+	init_rt_entity_runnable_average(&p->rt);
+#ifdef CONFIG_SCHED_HMP
+	trace_sched_task_runnable_ratio(p, p->se.avg.hmp_load_avg);
+#endif
+	trace_sched_task_load_contrib(p, p->se.avg.load_avg);
+
 #ifdef CONFIG_SMP
 	/*
 	 * Fork balancing, do it here and not earlier because:
@@ -2708,7 +2766,7 @@ context_switch(struct rq *rq, struct task_struct *prev,
 		atomic_inc(&oldmm->mm_count);
 		enter_lazy_tlb(oldmm, next);
 	} else
-		switch_mm_irqs_off(oldmm, mm, next);
+		switch_mm(oldmm, mm, next);
 
 	if (!prev->mm) {
 		prev->active_mm = NULL;
@@ -2901,10 +2959,92 @@ void scheduler_tick(void)
 
 #ifdef CONFIG_SMP
 	rq->idle_balance = idle_cpu(cpu);
-	trigger_load_balance(rq);
+	trigger_load_balance(rq, cpu);
 #endif
 	rq_last_tick_reset(rq);
 }
+
+#ifdef NR_CPUS
+static unsigned int heavy_cpu_count = NR_CPUS;
+#else
+static unsigned int heavy_cpu_count = 8;
+#endif
+
+static ssize_t heavy_task_cpu_show(struct device *dev,
+    struct device_attribute *attr, char *buf)
+{
+    int count = 0;
+    long unsigned int task_util;
+    long unsigned int cfs_load;
+    long unsigned int no_task;
+    long unsigned int remaining_load;
+    long unsigned int avg_load;
+    int cpu;
+
+    for_each_cpu(cpu, cpu_online_mask)
+    {
+        struct rq *rq = cpu_rq(cpu);
+        struct task_struct *p = rq->curr;
+        task_util = (long unsigned int)p->se.avg.util_avg;
+        cfs_load = (long unsigned int)rq->cfs.runnable_load_avg;
+        no_task = (long unsigned int)rq->cfs.h_nr_running;
+
+        if(task_util > HEAVY_TASK_LOAD_THRESHOLD)
+        {
+            count ++;
+        }
+        else if(task_util <= HEAVY_TASK_LOAD_THRESHOLD && no_task > 1)
+        {
+            remaining_load = cfs_load - task_util;
+            avg_load = remaining_load / (no_task-1);
+            if(avg_load > HEAVY_TASK_LOAD_THRESHOLD)
+                count++; 
+        }
+    }
+
+    heavy_cpu_count = count;
+
+    return snprintf(buf, 4, "%d\n", heavy_cpu_count);
+}
+
+static ssize_t heavy_task_cpu_store(struct device *dev,
+    struct device_attribute *attr, const char *buf, size_t size)
+{
+    sscanf(buf, "%d", &heavy_cpu_count);
+
+    return size;
+}
+
+static DEVICE_ATTR(heavy_task_cpu, 0664, heavy_task_cpu_show, heavy_task_cpu_store);
+
+static struct attribute *bench_mark_attributes[] = {
+    &dev_attr_heavy_task_cpu.attr,
+    NULL
+};
+
+static const struct attribute_group bench_mark_attr_group = {
+    .attrs = bench_mark_attributes,
+};
+
+int __init sched_heavy_cpu_init(void)
+{
+    int ret = 0;
+    struct device *dev;
+
+    dev = sec_device_create(NULL, "sec_heavy_cpu");
+
+    if (IS_ERR(dev)) {
+        dev_err(dev, "%s: fail to create sec_dev\n", __func__);
+        return PTR_ERR(dev);
+    }
+    ret = sysfs_create_group(&dev->kobj, &bench_mark_attr_group);
+    if (ret) {
+        dev_err(dev, "failed to create sysfs group\n");
+    }
+
+    return 0;
+}
+late_initcall(sched_heavy_cpu_init);
 
 #ifdef CONFIG_NO_HZ_FULL
 /**
@@ -3209,6 +3349,7 @@ static void __sched notrace __schedule(bool preempt)
 		raw_spin_unlock_irq(&rq->lock);
 	}
 
+	exynos_ss_task(cpu, rq->curr);
 	balance_callback(rq);
 }
 
@@ -3700,6 +3841,10 @@ static void __setscheduler_params(struct task_struct *p,
 	set_load_weight(p);
 }
 
+#ifdef CONFIG_SCHED_HMP
+extern struct cpumask hmp_slow_cpu_mask;
+#endif
+
 /* Actually do priority change: must hold pi & rq lock. */
 static void __setscheduler(struct rq *rq, struct task_struct *p,
 			   const struct sched_attr *attr, bool keep_boost)
@@ -3717,9 +3862,13 @@ static void __setscheduler(struct rq *rq, struct task_struct *p,
 
 	if (dl_prio(p->prio))
 		p->sched_class = &dl_sched_class;
-	else if (rt_prio(p->prio))
+	else if (rt_prio(p->prio)) {
 		p->sched_class = &rt_sched_class;
-	else
+#ifdef CONFIG_SCHED_HMP
+		if (cpumask_equal(&p->cpus_allowed, cpu_all_mask))
+			do_set_cpus_allowed(p, &hmp_slow_cpu_mask);
+#endif
+	} else
 		p->sched_class = &fair_sched_class;
 }
 
@@ -4427,11 +4576,13 @@ long sched_setaffinity(pid_t pid, const struct cpumask *in_mask)
 	struct task_struct *p;
 	int retval;
 
+	get_online_cpus();
 	rcu_read_lock();
 
 	p = find_process_by_pid(pid);
 	if (!p) {
 		rcu_read_unlock();
+		put_online_cpus();
 		return -ESRCH;
 	}
 
@@ -4507,6 +4658,7 @@ out_free_cpus_allowed:
 	free_cpumask_var(cpus_allowed);
 out_put_task:
 	put_task_struct(p);
+	put_online_cpus();
 	return retval;
 }
 
@@ -4551,6 +4703,7 @@ long sched_getaffinity(pid_t pid, struct cpumask *mask)
 	unsigned long flags;
 	int retval;
 
+	get_online_cpus();
 	rcu_read_lock();
 
 	retval = -ESRCH;
@@ -4563,11 +4716,12 @@ long sched_getaffinity(pid_t pid, struct cpumask *mask)
 		goto out_unlock;
 
 	raw_spin_lock_irqsave(&p->pi_lock, flags);
-	cpumask_and(mask, &p->cpus_allowed, cpu_active_mask);
+	cpumask_and(mask, &p->cpus_allowed, cpu_online_mask);
 	raw_spin_unlock_irqrestore(&p->pi_lock, flags);
 
 out_unlock:
 	rcu_read_unlock();
+	put_online_cpus();
 
 	return retval;
 }
@@ -4975,15 +5129,13 @@ void show_state_filter(unsigned long state_filter)
 		/*
 		 * reset the NMI-timeout, listing all files on a slow
 		 * console might take a lot of time:
-		 * Also, reset softlockup watchdogs on all CPUs, because
-		 * another CPU might be blocked waiting for us to process
-		 * an IPI.
 		 */
 		touch_nmi_watchdog();
-		touch_all_softlockup_watchdogs();
 		if (!state_filter || (p->state & state_filter))
 			sched_show_task(p);
 	}
+
+	touch_all_softlockup_watchdogs();
 
 #ifdef CONFIG_SCHED_DEBUG
 	sysrq_sched_debug_show();
@@ -5552,6 +5704,7 @@ migration_call(struct notifier_block *nfb, unsigned long action, void *hcpu)
 
 	case CPU_UP_PREPARE:
 		rq->calc_load_update = calc_load_update;
+		account_reset_rq(rq);
 		break;
 
 	case CPU_ONLINE:
@@ -5907,12 +6060,6 @@ static int init_rootdomain(struct root_domain *rd)
 	if (!zalloc_cpumask_var(&rd->rto_mask, GFP_KERNEL))
 		goto free_dlo_mask;
 
-#ifdef HAVE_RT_PUSH_IPI
-	rd->rto_cpu = -1;
-	raw_spin_lock_init(&rd->rto_lock);
-	init_irq_work(&rd->rto_push_work, rto_push_irq_work_func);
-#endif
-
 	init_dl_bw(&rd->dl_bw);
 	if (cpudl_init(&rd->cpudl) != 0)
 		goto free_dlo_mask;
@@ -6127,9 +6274,6 @@ enum s_alloc {
  * Build an iteration mask that can exclude certain CPUs from the upwards
  * domain traversal.
  *
- * Only CPUs that can arrive at this group should be considered to continue
- * balancing.
- *
  * Asymmetric node setups can result in situations where the domain tree is of
  * unequal depth, make sure to skip domains that already cover the entire
  * range.
@@ -6141,31 +6285,18 @@ enum s_alloc {
  */
 static void build_group_mask(struct sched_domain *sd, struct sched_group *sg)
 {
-	const struct cpumask *sg_span = sched_group_cpus(sg);
+	const struct cpumask *span = sched_domain_span(sd);
 	struct sd_data *sdd = sd->private;
 	struct sched_domain *sibling;
 	int i;
 
-	for_each_cpu(i, sg_span) {
+	for_each_cpu(i, span) {
 		sibling = *per_cpu_ptr(sdd->sd, i);
-
-		/*
-		 * Can happen in the asymmetric case, where these siblings are
-		 * unused. The mask will not be empty because those CPUs that
-		 * do have the top domain _should_ span the domain.
-		 */
-		if (!sibling->child)
-			continue;
-
-		/* If we would not end up here, we can't continue from here */
-		if (!cpumask_equal(sg_span, sched_domain_span(sibling->child)))
+		if (!cpumask_test_cpu(i, sched_domain_span(sibling)))
 			continue;
 
 		cpumask_set_cpu(i, sched_group_mask(sg));
 	}
-
-	/* We must not have empty masks here */
-	WARN_ON_ONCE(cpumask_empty(sched_group_mask(sg)));
 }
 
 /*
@@ -6461,6 +6592,7 @@ static int sched_domains_curr_level;
  * SD_SHARE_PKG_RESOURCES - describes shared caches
  * SD_NUMA                - describes NUMA topologies
  * SD_SHARE_POWERDOMAIN   - describes shared power domain
+ * SD_NO_LOAD_BALANCE     - describes domain-wise load balance
  *
  * Odd one out:
  * SD_ASYM_PACKING        - describes SMT quirks
@@ -6470,7 +6602,8 @@ static int sched_domains_curr_level;
 	 SD_SHARE_PKG_RESOURCES |	\
 	 SD_NUMA |			\
 	 SD_ASYM_PACKING |		\
-	 SD_SHARE_POWERDOMAIN)
+	 SD_SHARE_POWERDOMAIN |		\
+	 SD_NO_LOAD_BALANCE)
 
 static struct sched_domain *
 sd_init(struct sched_domain_topology_level *tl, int cpu)
@@ -6493,6 +6626,9 @@ sd_init(struct sched_domain_topology_level *tl, int cpu)
 			"wrong sd_flags in topology description\n"))
 		sd_flags &= ~TOPOLOGY_SD_FLAGS;
 
+	if (!(sd_flags & SD_NO_LOAD_BALANCE))
+		sd_flags |= SD_LOAD_BALANCE;
+
 	*sd = (struct sched_domain){
 		.min_interval		= sd_weight,
 		.max_interval		= 2*sd_weight,
@@ -6506,7 +6642,7 @@ sd_init(struct sched_domain_topology_level *tl, int cpu)
 		.wake_idx		= 0,
 		.forkexec_idx		= 0,
 
-		.flags			= 1*SD_LOAD_BALANCE
+		.flags			= 0*SD_LOAD_BALANCE
 					| 1*SD_BALANCE_NEWIDLE
 					| 1*SD_BALANCE_EXEC
 					| 1*SD_BALANCE_FORK
@@ -6570,6 +6706,12 @@ sd_init(struct sched_domain_topology_level *tl, int cpu)
 	return sd;
 }
 
+int __weak cpu_cpu_flags(void)
+{
+	return 0;
+}
+
+
 /*
  * Topology list, bottom-up.
  */
@@ -6580,7 +6722,7 @@ static struct sched_domain_topology_level default_topology[] = {
 #ifdef CONFIG_SCHED_MC
 	{ cpu_coregroup_mask, cpu_core_flags, SD_INIT_NAME(MC) },
 #endif
-	{ cpu_cpu_mask, SD_INIT_NAME(DIE) },
+	{ cpu_cpu_mask, cpu_cpu_flags, SD_INIT_NAME(DIE) },
 	{ NULL, },
 };
 
@@ -7291,16 +7433,17 @@ static int cpuset_cpu_active(struct notifier_block *nfb, unsigned long action,
 		 * operation in the resume sequence, just build a single sched
 		 * domain, ignoring cpusets.
 		 */
-		partition_sched_domains(1, NULL, NULL);
-		if (--num_cpus_frozen)
+		num_cpus_frozen--;
+		if (likely(num_cpus_frozen)) {
+			partition_sched_domains(1, NULL, NULL);
 			break;
+		}
 
 		/*
 		 * This is the last CPU online operation. So fall through and
 		 * restore the original sched domains by considering the
 		 * cpuset configurations.
 		 */
-		cpuset_force_rebuild();
 
 	case CPU_ONLINE:
 		cpuset_update_active_cpus(true);
@@ -7321,7 +7464,7 @@ static int cpuset_cpu_inactive(struct notifier_block *nfb, unsigned long action,
 	int cpus;
 
 	switch (action) {
-	case CPU_DOWN_PREPARE:
+	case CPU_DOWN_LATE_PREPARE:
 		rcu_read_lock_sched();
 		dl_b = dl_bw_of(cpu);
 
@@ -7355,17 +7498,14 @@ void __init sched_init_smp(void)
 
 	sched_init_numa();
 
-	/*
-	 * There's no userspace yet to cause hotplug operations; hence all the
-	 * cpu masks are stable and all blatant races in the below code cannot
-	 * happen.
-	 */
+	get_online_cpus();
 	mutex_lock(&sched_domains_mutex);
 	init_sched_domains(cpu_active_mask);
 	cpumask_andnot(non_isolated_cpus, cpu_possible_mask, cpu_isolated_map);
 	if (cpumask_empty(non_isolated_cpus))
 		cpumask_set_cpu(smp_processor_id(), non_isolated_cpus);
 	mutex_unlock(&sched_domains_mutex);
+	put_online_cpus();
 
 	hotcpu_notifier(sched_domains_numa_masks_update, CPU_PRI_SCHED_ACTIVE);
 	hotcpu_notifier(cpuset_cpu_active, CPU_PRI_CPUSET_ACTIVE);
@@ -7411,6 +7551,11 @@ void __init sched_init(void)
 {
 	int i, j;
 	unsigned long alloc_size = 0, ptr;
+
+#ifdef CONFIG_SEC_DEBUG
+	sec_gaf_supply_rqinfo(offsetof(struct rq, curr),
+			      offsetof(struct cfs_rq, rq));
+#endif
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
 	alloc_size += 2 * nr_cpu_ids * sizeof(void **);
@@ -7590,6 +7735,14 @@ static inline int preempt_count_equals(int preempt_offset)
 	return (nested == preempt_offset);
 }
 
+static int __might_sleep_init_called;
+int __init __might_sleep_init(void)
+{
+	__might_sleep_init_called = 1;
+	return 0;
+}
+early_initcall(__might_sleep_init);
+
 void __might_sleep(const char *file, int line, int preempt_offset)
 {
 	/*
@@ -7614,8 +7767,10 @@ void ___might_sleep(const char *file, int line, int preempt_offset)
 
 	rcu_sleep_check(); /* WARN_ON_ONCE() by default, no rate limit reqd. */
 	if ((preempt_count_equals(preempt_offset) && !irqs_disabled() &&
-	     !is_idle_task(current)) ||
-	    system_state != SYSTEM_RUNNING || oops_in_progress)
+	     !is_idle_task(current)) || oops_in_progress)
+		return;
+	if (system_state != SYSTEM_RUNNING &&
+	    (!__might_sleep_init_called || system_state != SYSTEM_BOOTING))
 		return;
 	if (time_before(jiffies, prev_jiffy + HZ) && prev_jiffy)
 		return;
@@ -7845,7 +8000,7 @@ void sched_move_task(struct task_struct *tsk)
 	tg = autogroup_task_group(tsk, tg);
 	tsk->sched_task_group = tg;
 
-#ifdef CONFIG_FAIR_GROUP_SCHED
+#if defined(CONFIG_FAIR_GROUP_SCHED) || defined(CONFIG_RT_GROUP_SCHED)
 	if (tsk->sched_class->task_move_group)
 		tsk->sched_class->task_move_group(tsk);
 	else
@@ -8256,18 +8411,9 @@ cpu_cgroup_css_alloc(struct cgroup_subsys_state *parent_css)
 	if (IS_ERR(tg))
 		return ERR_PTR(-ENOMEM);
 
+	sched_online_group(tg, parent);
+
 	return &tg->css;
-}
-
-/* Expose task group only after completing cgroup initialization */
-static int cpu_cgroup_css_online(struct cgroup_subsys_state *css)
-{
-	struct task_group *tg = css_tg(css);
-	struct task_group *parent = css_tg(css->parent);
-
-	if (parent)
-		sched_online_group(tg, parent);
-	return 0;
 }
 
 static void cpu_cgroup_css_released(struct cgroup_subsys_state *css)
@@ -8644,7 +8790,6 @@ static struct cftype cpu_files[] = {
 
 struct cgroup_subsys cpu_cgrp_subsys = {
 	.css_alloc	= cpu_cgroup_css_alloc,
-	.css_online	= cpu_cgroup_css_online,
 	.css_released	= cpu_cgroup_css_released,
 	.css_free	= cpu_cgroup_css_free,
 	.fork		= cpu_cgroup_fork,

@@ -7,12 +7,16 @@
 
 #include <linux/slab.h>
 #include <linux/irq_work.h>
+#include <trace/events/sched.h>
 
 int sched_rr_timeslice = RR_TIMESLICE;
 
 static int do_sched_rt_period_timer(struct rt_bandwidth *rt_b, int overrun);
 
 struct rt_bandwidth def_rt_bandwidth;
+
+unsigned int sched_switch_to_rt_load_ratio;
+unsigned int sched_switch_to_fair_load_ratio;
 
 static enum hrtimer_restart sched_rt_period_timer(struct hrtimer *timer)
 {
@@ -64,6 +68,10 @@ static void start_rt_bandwidth(struct rt_bandwidth *rt_b)
 	raw_spin_unlock(&rt_b->rt_runtime_lock);
 }
 
+#if defined(CONFIG_SMP) && defined(HAVE_RT_PUSH_IPI)
+static void push_irq_work_func(struct irq_work *work);
+#endif
+
 void init_rt_rq(struct rt_rq *rt_rq)
 {
 	struct rt_prio_array *array;
@@ -83,6 +91,15 @@ void init_rt_rq(struct rt_rq *rt_rq)
 	rt_rq->rt_nr_migratory = 0;
 	rt_rq->overloaded = 0;
 	plist_head_init(&rt_rq->pushable_tasks);
+	atomic_long_set(&rt_rq->removed_util_avg, 0);
+	atomic_long_set(&rt_rq->removed_load_avg, 0);
+
+#ifdef HAVE_RT_PUSH_IPI
+	rt_rq->push_flags = 0;
+	rt_rq->push_cpu = nr_cpu_ids;
+	raw_spin_lock_init(&rt_rq->push_lock);
+	init_irq_work(&rt_rq->push_work, push_irq_work_func);
+#endif
 #endif /* CONFIG_SMP */
 	/* We start is dequeued state, because no RT tasks are queued */
 	rt_rq->rt_queued = 0;
@@ -97,16 +114,6 @@ void init_rt_rq(struct rt_rq *rt_rq)
 static void destroy_rt_bandwidth(struct rt_bandwidth *rt_b)
 {
 	hrtimer_cancel(&rt_b->rt_period_timer);
-}
-
-#define rt_entity_is_task(rt_se) (!(rt_se)->my_q)
-
-static inline struct task_struct *rt_task_of(struct sched_rt_entity *rt_se)
-{
-#ifdef CONFIG_SCHED_DEBUG
-	WARN_ON_ONCE(!rt_entity_is_task(rt_se));
-#endif
-	return container_of(rt_se, struct task_struct, rt);
 }
 
 static inline struct rq *rq_of_rt_rq(struct rt_rq *rt_rq)
@@ -249,6 +256,273 @@ int alloc_rt_sched_group(struct task_group *tg, struct task_group *parent)
 
 #ifdef CONFIG_SMP
 
+/*
+ * Signed add and clamp on underflow.
+ *
+ * Explicitly do a load-store to ensure the intermediate value never hits
+ * memory. This allows lockless observations without ever seeing the negative
+ * values.
+ */
+#define add_positive(_ptr, _val) do {						\
+	typeof(_ptr) ptr = (_ptr);								\
+	typeof(_val) val = (_val);								\
+	typeof(*ptr) res, var = READ_ONCE(*ptr);				\
+															\
+	res = var + val;										\
+															\
+	if (val < 0 && res > var)								\
+	res = 0;												\
+															\
+	WRITE_ONCE(*ptr, res);									\
+} while (0)
+
+#define entity_is_task(se)	(!se->my_q)
+#define LOAD_AVG_MAX		47742
+#define cap_scale(v, s) ((v)*(s) >> SCHED_CAPACITY_SHIFT)
+
+u64 decay_load(u64 val, u64 n);
+u32 __compute_runnable_contrib(u64 n);
+
+/*
+ * We can represent the historical contribution to runnable average as the
+ * coefficients of a geometric series.  To do this we sub-divide our runnable
+ * history into segments of approximately 1ms (1024us); label the segment that
+ * occurred N-ms ago p_N, with p_0 corresponding to the current period, e.g.
+ *
+ * [<- 1024us ->|<- 1024us ->|<- 1024us ->| ...
+ *      p0            p1           p2
+ *     (now)       (~1ms ago)  (~2ms ago)
+ *
+ * Let u_i denote the fraction of p_i that the entity was runnable.
+ *
+ * We then designate the fractions u_i as our co-efficients, yielding the
+ * following representation of historical load:
+ *   u_0 + u_1*y + u_2*y^2 + u_3*y^3 + ...
+ *
+ * We choose y based on the with of a reasonably scheduling period, fixing:
+ *   y^32 = 0.5
+ *
+ * This means that the contribution to load ~32ms ago (u_32) will be weighted
+ * approximately half as much as the contribution to load within the last ms
+ * (u_0).
+ *
+ * When a period "rolls over" and we have new u_0`, multiplying the previous
+ * sum again by y is sufficient to update:
+ *   load_avg = u_0` + y*(u_0 + u_1*y + u_2*y^2 + ... )
+ *            = u_0 + u_1*y + u_2*y^2 + ... [re-labeling u_i --> u_{i+1}]
+ */
+static __always_inline int
+__update_load_avg(u64 now, int cpu, struct sched_avg *sa,
+			unsigned long weight, int running, struct rt_rq *rt_rq)
+{
+	u64 delta, scaled_delta, periods;
+	u32 contrib;
+	unsigned int delta_w, scaled_delta_w, decayed = 0;
+	unsigned long scale_freq, scale_cpu;
+
+	delta = now - sa->last_update_time;
+	/*
+	 * This should only happen when time goes backwards, which it
+	 * unfortunately does during sched clock init when we swap over to TSC.
+	 */
+	if ((s64)delta < 0) {
+		sa->last_update_time = now;
+		return 0;
+	}
+
+	/*
+	 * Use 1024ns as the unit of measurement since it's a reasonable
+	 * approximation of 1us and fast to compute.
+	 */
+	delta >>= 10;
+	if (!delta)
+		return 0;
+	sa->last_update_time = now;
+
+	scale_freq = arch_scale_freq_capacity(NULL, cpu);
+	scale_cpu = arch_scale_cpu_capacity(NULL, cpu);
+
+	/* delta_w is the amount already accumulated against our next period */
+	delta_w = sa->period_contrib;
+	if (delta + delta_w >= 1024) {
+		decayed = 1;
+
+		/* how much left for next period will start over, we don't know yet */
+		sa->period_contrib = 0;
+
+		/*
+		 * Now that we know we're crossing a period boundary, figure
+		 * out how much from delta we need to complete the current
+		 * period and accrue it.
+		 */
+		delta_w = 1024 - delta_w;
+		scaled_delta_w = cap_scale(delta_w, scale_freq);
+		if (weight)
+			sa->load_sum += weight * scaled_delta_w;
+		if (running)
+			sa->util_sum += scaled_delta_w * scale_cpu;
+
+		delta -= delta_w;
+
+		/* Figure out how many additional periods this update spans */
+		periods = delta / 1024;
+		delta %= 1024;
+
+		sa->load_sum = decay_load(sa->load_sum, periods + 1);
+		sa->util_sum = decay_load((u64)(sa->util_sum), periods + 1);
+
+		/* Efficiently calculate \sum (1..n_period) 1024*y^i */
+		contrib = __compute_runnable_contrib(periods);
+		contrib = cap_scale(contrib, scale_freq);
+		if (weight)
+			sa->load_sum += weight * contrib;
+		if (running)
+			sa->util_sum += contrib * scale_cpu;
+	}
+
+	/* Remainder of delta accrued against u_0` */
+	scaled_delta = cap_scale(delta, scale_freq);
+	if (weight)
+		sa->load_sum += weight * scaled_delta;
+	if (running)
+		sa->util_sum += scaled_delta * scale_cpu;
+
+	sa->period_contrib += delta;
+
+	if (decayed) {
+		sa->load_avg = div_u64(sa->load_sum, LOAD_AVG_MAX);
+		sa->util_avg = sa->util_sum / LOAD_AVG_MAX;
+	}
+
+	return decayed;
+}
+
+#ifdef CONFIG_RT_GROUP_SCHED
+/* Take into account change of utilization of a child task group */
+static inline void
+update_tg_rt_util(struct rt_rq *rt_rq, struct sched_rt_entity *rt_se)
+{
+	struct rt_rq *grt_rq = rt_se->my_q;
+	long delta = grt_rq->avg.util_avg - rt_se->avg.util_avg;
+
+	/* Nothing to update */
+	if (!delta)
+		return;
+
+	/* Set new sched_rt_entity's utilization */
+	rt_se->avg.util_avg = grt_rq->avg.util_avg;
+	rt_se->avg.util_sum = rt_se->avg.util_avg * LOAD_AVG_MAX;
+
+	/* Update parent rt_rq utilization */
+	add_positive(&rt_rq->avg.util_avg, delta);
+	rt_rq->avg.util_sum = rt_rq->avg.util_avg * LOAD_AVG_MAX;
+}
+static inline void
+update_tg_rt_load(struct rt_rq *rt_rq, struct sched_rt_entity *rt_se)
+{
+	struct rt_rq *grt_rq = rt_se->my_q;
+	long delta = grt_rq->avg.load_avg - rt_se->avg.load_avg;
+
+	/* Nothing to update */
+	if (!delta)
+		return;
+
+	/* Set new sched_rt_entity's load */
+	rt_se->avg.load_avg = grt_rq->avg.load_avg;
+	rt_se->avg.load_sum = rt_se->avg.load_avg * LOAD_AVG_MAX;
+
+	/* Update parent rt_rq load */
+	add_positive(&rt_rq->avg.load_avg, delta);
+	rt_rq->avg.load_sum = rt_rq->avg.load_avg * LOAD_AVG_MAX;
+}
+
+static inline int test_and_clear_tg_rt_propagate(struct sched_rt_entity *rt_se)
+{
+	struct rt_rq *grt_rq = rt_se->my_q;
+
+	if (!grt_rq->propagate_avg)
+		return 0;
+
+	grt_rq->propagate_avg = 0;
+
+	return 1;
+}
+
+static inline void propagate_rt_entity_load_avg(struct sched_rt_entity *rt_se, struct rt_rq *rt_rq)
+{
+	if (entity_is_task(rt_se))
+		return;
+	if (!test_and_clear_tg_rt_propagate(rt_se))
+		return;
+
+	rt_rq->propagate_avg = 1;
+
+	update_tg_rt_util(rt_rq, rt_se);
+	update_tg_rt_load(rt_rq, rt_se);
+}
+#else /* CONFIG_RT_GROUP_SCHED */
+static inline void propagate_rt_entity_load_avg(struct sched_rt_entity *rt_se, struct rt_rq *rt_rq)
+{
+}
+#endif
+
+int update_rt_rq_load_avg(u64 now, int cpu, struct rt_rq *rt_rq, bool update_freq)
+{
+	int decayed, removed_util = 0;
+	struct sched_avg *sa = &rt_rq->avg;
+	struct rq *rq = rt_rq->rq;
+
+	if (atomic_long_read(&rt_rq->removed_util_avg)) {
+		long r = atomic_long_xchg(&rt_rq->removed_util_avg, 0);
+		sa->util_avg = max_t(long, sa->util_avg - r, 0);
+		sa->util_sum = max_t(s32, sa->util_sum - r * LOAD_AVG_MAX, 0);
+		removed_util = 1;
+#ifdef CONFIG_RT_GROUP_SCHED
+		/* Set propagate_avg for task group load propagate */
+		rt_rq->propagate_avg = 1;
+#endif
+	}
+
+	if (atomic_long_read(&rt_rq->removed_load_avg)) {
+		long r = atomic_long_xchg(&rt_rq->removed_load_avg, 0);
+		sa->load_avg = max_t(long, sa->load_avg - r, 0);
+		sa->load_sum = max_t(s64, sa->load_sum - r * LOAD_AVG_MAX, 0);
+#ifdef CONFIG_RT_GROUP_SCHED
+		/* Set propagate_avg for task group load propagate */
+		rt_rq->propagate_avg = 1;
+#endif
+	}
+
+	decayed = __update_load_avg(now, cpu, sa, scale_load_down(NICE_0_LOAD),
+			rt_rq->curr != NULL, NULL);
+
+#ifndef CONFIG_64BIT
+	smp_wmb();
+	rt_rq->load_last_update_time_copy = sa->last_update_time;
+#endif
+
+	if (rt_rq == &rq->rt)
+		trace_sched_rt_load_avg_cpu(cpu_of(rq), rt_rq);
+
+	return decayed;
+}
+
+void update_rt_load_avg(u64 now, struct sched_rt_entity *rt_se, struct rt_rq *rt_rq, int cpu)
+{
+	/*
+	 * Track task load average for carrying it to new CPU after migrated.
+	 */
+	if (rt_se->avg.last_update_time)
+		__update_load_avg(now, cpu, &rt_se->avg, scale_load_down(NICE_0_LOAD),
+				rt_rq->curr == rt_se, NULL);
+
+	update_rt_rq_load_avg(now, cpu, rt_rq, true);
+	propagate_rt_entity_load_avg(rt_se, rt_rq);
+
+	if (entity_is_task(rt_se))
+		trace_sched_rt_load_avg_task(rt_task_of(rt_se), &rt_se->avg);
+}
+
 static void pull_rt_task(struct rq *this_rq);
 
 static inline bool need_pull_rt_task(struct rq *rq, struct task_struct *prev)
@@ -387,6 +661,19 @@ static void dequeue_pushable_task(struct rq *rq, struct task_struct *p)
 }
 
 #else
+static inline void rt_rq_util_change(struct rt_rq *rt_rq)
+{
+}
+
+static inline
+int update_rt_rq_load_avg(u64 now, int cpu, struct rt_rq *rt_rq, bool update_freq)
+{
+	return 0;
+}
+static inline
+void update_rt_load_avg(u64 now, struct sched_rt_entity *rt_se, struct rt_rq *rt_rq, int cpu)
+{
+}
 
 static inline void enqueue_pushable_task(struct rq *rq, struct task_struct *p)
 {
@@ -934,6 +1221,10 @@ static void update_curr_rt(struct rq *rq)
 	if (curr->sched_class != &rt_sched_class)
 		return;
 
+	/* Kick cpufreq (see the comment in linux/cpufreq.h). */
+	if (cpu_of(rq) == smp_processor_id())
+		cpufreq_trigger_update(rq_clock(rq));
+
 	delta_exec = rq_clock_task(rq) - curr->se.exec_start;
 	if (unlikely((s64)delta_exec <= 0))
 		return;
@@ -1155,12 +1446,67 @@ void dec_rt_tasks(struct sched_rt_entity *rt_se, struct rt_rq *rt_rq)
 	dec_rt_group(rt_se, rt_rq);
 }
 
+#ifdef CONFIG_SMP
+/**
+ * attach_rt_entity_load_avg - attach this entity to its rt_rq load avg
+ * @rt_rq: rt_rq to attach to
+ * @rt_se: sched_rt_entity to attach
+ *
+ * Must call update_rt_rq_load_avg() before this, since we rely on
+ * rt_rq->avg.last_update_time being current.
+ *
+ * load_{avg,sum} are not used by RT
+ */
+static void
+attach_entity_load_avg(struct rt_rq *rt_rq, struct sched_rt_entity *rt_se)
+{
+	rt_se->avg.last_update_time = rt_rq->avg.last_update_time;
+	rt_rq->avg.util_avg += rt_se->avg.util_avg;
+	rt_rq->avg.util_sum += rt_se->avg.util_sum;
+	rt_rq->avg.load_avg += rt_se->avg.load_avg;
+	rt_rq->avg.load_sum += rt_se->avg.load_sum;
+#ifdef CONFIG_RT_GROUP_SCHED
+	/* Set propagate_avg for task group load propagate */
+	rt_rq->propagate_avg = 1;
+#endif
+
+}
+
+/*
+ * detach_entity_load_avg - detach this entity from its rt_rq load avg
+ * @rt_rq: rt_rq to detach from
+ * @rt_se: sched_rt_entity to detach
+ *
+ * Must call update_rt_rq_load_avg() before this, since we rely on
+ * rt_rq->avg.last_update_time being current.
+ *
+ * load_{avg,sum} are not used by RT
+ */
+static void detach_entity_load_avg(struct rt_rq *rt_rq, struct sched_rt_entity *rt_se)
+{
+	rt_rq->avg.util_avg = max_t(long, rt_rq->avg.util_avg - rt_se->avg.util_avg, 0);
+	rt_rq->avg.util_sum = max_t(s32, rt_rq->avg.util_sum - rt_se->avg.util_sum, 0);
+	rt_rq->avg.load_avg = max_t(long, rt_rq->avg.load_avg - rt_se->avg.load_avg, 0);
+	rt_rq->avg.load_sum = max_t(long, rt_rq->avg.load_sum - rt_se->avg.load_sum, 0);
+#ifdef CONFIG_RT_GROUP_SCHED
+	/* Set propagate_avg for task group load propagate */
+	rt_rq->propagate_avg = 1;
+#endif
+}
+#else
+static inline void
+attach_entity_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *se) {}
+static inline void
+detach_entity_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *se) {}
+#endif
+
 static void __enqueue_rt_entity(struct sched_rt_entity *rt_se, bool head)
 {
 	struct rt_rq *rt_rq = rt_rq_of_se(rt_se);
 	struct rt_prio_array *array = &rt_rq->active;
 	struct rt_rq *group_rq = group_rt_rq(rt_se);
 	struct list_head *queue = array->queue + rt_se_prio(rt_se);
+	u64 now = rq_clock_task(rq_of_rt_rq(rt_rq));
 
 	/*
 	 * Don't enqueue the group if its throttled, or when empty.
@@ -1177,6 +1523,11 @@ static void __enqueue_rt_entity(struct sched_rt_entity *rt_se, bool head)
 		list_add_tail(&rt_se->run_list, queue);
 	__set_bit(rt_se_prio(rt_se), array->bitmap);
 
+	update_rt_load_avg(now, rt_se, rt_rq, cpu_of(rq_of_rt_rq(rt_rq)));
+
+	if (rt_entity_is_task(rt_se) && !rt_se->avg.last_update_time)
+		attach_entity_load_avg(&rq_of_rt_se(rt_se)->rt, rt_se);
+
 	inc_rt_tasks(rt_se, rt_rq);
 }
 
@@ -1184,10 +1535,13 @@ static void __dequeue_rt_entity(struct sched_rt_entity *rt_se)
 {
 	struct rt_rq *rt_rq = rt_rq_of_se(rt_se);
 	struct rt_prio_array *array = &rt_rq->active;
+	u64 now = rq_clock_task(rq_of_rt_rq(rt_rq));
 
 	list_del_init(&rt_se->run_list);
 	if (list_empty(array->queue + rt_se_prio(rt_se)))
 		__clear_bit(rt_se_prio(rt_se), array->bitmap);
+
+	update_rt_load_avg(now, rt_se, rt_rq, cpu_of(rq_of_rt_rq(rt_rq)));
 
 	dec_rt_tasks(rt_se, rt_rq);
 }
@@ -1249,6 +1603,8 @@ enqueue_task_rt(struct rq *rq, struct task_struct *p, int flags)
 	if (flags & ENQUEUE_WAKEUP)
 		rt_se->timeout = 0;
 
+	update_rt_rq_load_avg(rq_clock_task(rq), cpu_of(rq), &rq->rt, 0);
+
 	enqueue_rt_entity(rt_se, flags & ENQUEUE_HEAD);
 
 	if (!task_current(rq, p) && p->nr_cpus_allowed > 1)
@@ -1302,6 +1658,40 @@ static void yield_task_rt(struct rq *rq)
 #ifdef CONFIG_SMP
 static int find_lowest_rq(struct task_struct *task);
 
+#ifdef CONFIG_SCHED_USE_FLUID_RT
+static int
+select_task_rq_rt_fluid(struct task_struct *p, int cpu, int sd_flag, int flags)
+{
+	int target;
+
+	rcu_read_lock();
+	target = find_lowest_rq(p);
+	if (target != -1)
+		cpu = target;
+	rcu_read_unlock();
+
+	return cpu;
+}
+
+static inline void set_victim_flag(struct task_struct *p)
+{
+	p->victim_flag = 1;
+}
+
+static inline void clear_victim_flag(struct task_struct *p)
+{
+	p->victim_flag = 0;
+}
+
+static inline bool test_victim_flag(struct task_struct *p)
+{
+	if (p->victim_flag)
+		return true;
+	else
+		return false;
+}
+
+#else
 static int
 select_task_rq_rt(struct task_struct *p, int cpu, int sd_flag, int flags)
 {
@@ -1358,6 +1748,179 @@ out:
 	return cpu;
 }
 
+static inline bool test_victim_flag(struct task_struct *p)
+{
+	return false;
+}
+static inline void clear_victim_flag(struct task_struct *p)
+{
+}
+#endif
+
+#ifdef CONFIG_RT_GROUP_SCHED
+/*
+ * Called within set_task_rq() right before setting a task's cpu. The
+ * caller only guarantees p->pi_lock is held; no other assumptions,
+ * including the state of rq->lock, should be made.
+ */
+void set_task_rq_rt(struct sched_rt_entity *rt_se,
+					struct rt_rq *prev, struct rt_rq *next)
+{
+	if (!sched_feat(ATTACH_AGE_LOAD))
+		return;
+	/*
+	 * We are supposed to update the task to "current" time, then its up to
+	 * date and ready to go to new CPU/cfs_rq. But we have difficulty in
+	 * getting what current time is, so simply throw away the out-of-date
+	 * time. This will result in the wakee task is less decayed, but giving
+	 * the wakee more load sounds not bad.
+	 */
+	if (rt_se->avg.last_update_time && prev) {
+		u64 p_last_update_time;
+		u64 n_last_update_time;
+
+#ifndef CONFIG_64BIT
+		u64 p_last_update_time_copy;
+		u64 n_last_update_time_copy;
+
+		do {
+			p_last_update_time_copy = prev->load_last_update_time_copy;
+			n_last_update_time_copy = next->load_last_update_time_copy;
+
+			smp_rmb();
+
+			p_last_update_time = prev->avg.last_update_time;
+			n_last_update_time = next->avg.last_update_time;
+		} while (p_last_update_time != p_last_update_time_copy ||
+		n_last_update_time != n_last_update_time_copy);
+#else
+		p_last_update_time = prev->avg.last_update_time;
+		n_last_update_time = next->avg.last_update_time;
+#endif
+		__update_load_avg(p_last_update_time, cpu_of(rq_of_rt_rq(prev)),
+				&rt_se->avg, 0, 0, NULL);
+
+		rt_se->avg.last_update_time = n_last_update_time;
+	}
+}
+#endif /* CONFIG_RT_GROUP_SCHED */
+
+#ifndef CONFIG_64BIT
+static inline u64 rt_rq_last_update_time(struct rt_rq *rt_rq)
+{
+	u64 last_update_time_copy;
+	u64 last_update_time;
+
+	do {
+		last_update_time_copy = rt_rq->load_last_update_time_copy;
+		smp_rmb();
+		last_update_time = rt_rq->avg.last_update_time;
+	} while (last_update_time != last_update_time_copy);
+
+	return last_update_time;
+}
+#else
+static inline u64 rt_rq_last_update_time(struct rt_rq *rt_rq)
+{
+	return rt_rq->avg.last_update_time;
+}
+#endif
+
+/*
+ * Synchronize entity load avg of dequeued entity without locking
+ * the previous rq.
+ */
+static void sync_entity_load_avg(struct sched_rt_entity *rt_se)
+{
+	struct rt_rq *rt_rq = rt_rq_of_se(rt_se);
+	u64 last_update_time;
+
+	last_update_time = rt_rq_last_update_time(rt_rq);
+	__update_load_avg(last_update_time, cpu_of(rq_of_rt_rq(rt_rq)),
+				&rt_se->avg, 0, 0, NULL);
+}
+
+/*
+ * Task first catches up with rt_rq, and then subtract
+ * itself from the rt_rq (task must be off the queue now).
+ */
+static void remove_entity_load_avg(struct sched_rt_entity *rt_se)
+{
+	struct rt_rq *rt_rq = rt_rq_of_se(rt_se);
+
+	/*
+	 * tasks cannot exit without having gone through wake_up_new_task() ->
+	 * post_init_entity_util_avg() which will have added things to the
+	 * rt_rq, so we can remove unconditionally.
+	 *
+	 * Similarly for groups, they will have passed through
+	 * post_init_entity_util_avg() before unregister_sched_fair_group()
+	 * calls this.
+	 */
+
+	sync_entity_load_avg(rt_se);
+	atomic_long_add(rt_se->avg.load_avg, &rt_rq->removed_load_avg);
+	atomic_long_add(rt_se->avg.util_avg, &rt_rq->removed_util_avg);
+}
+
+static void attach_task_rt_rq(struct task_struct *p)
+{
+	struct sched_rt_entity *rt_se = &p->rt;
+	struct rt_rq *rt_rq = rt_rq_of_se(rt_se);
+	u64 now = rq_clock_task(rq_of_rt_rq(rt_rq));
+
+	update_rt_load_avg(now, rt_se, rt_rq, cpu_of(rq_of_rt_rq(rt_rq)));
+
+	attach_entity_load_avg(rt_rq, rt_se);
+}
+
+static void detach_task_rt_rq(struct task_struct *p)
+{
+	struct sched_rt_entity *rt_se = &p->rt;
+	struct rt_rq *rt_rq = rt_rq_of_se(rt_se);
+	u64 now = rq_clock_task(rq_of_rt_rq(rt_rq));
+
+	update_rt_load_avg(now, rt_se, rt_rq, cpu_of(rq_of_rt_rq(rt_rq)));
+	detach_entity_load_avg(rt_rq ,rt_se);
+}
+
+static void migrate_task_rq_rt(struct task_struct *p, int next_cpu)
+{
+	/*
+	 * As for fair, we are supposed to update the task to "current" time,
+	 * then its up to date and ready to go to new CPU/rt_rq. But we have
+	 * difficulty in getting what current time is, so simply throw away the
+	 * out-of-date time. This will result in the wakee task is less
+	 * decayed, but giving the wakee more load sounds not bad.
+	 */
+	remove_entity_load_avg(&p->rt);
+
+	/* Tell new CPU we are migrated */
+	p->rt.avg.last_update_time = 0;
+
+	/* We have migrated, no longer consider this task hot */
+	p->se.exec_start = 0;
+}
+
+static void task_dead_rt(struct task_struct *p)
+{
+	remove_entity_load_avg(&p->rt);
+}
+
+#ifdef CONFIG_RT_GROUP_SCHED
+static void task_move_group_rt(struct task_struct *p)
+{
+	detach_task_rt_rq(p);
+	set_task_rq(p, task_cpu(p));
+
+#ifdef CONFIG_SMP
+	/* Tell se's rt_rq has been changed -- migrated */
+	p->rt.avg.last_update_time = 0;
+#endif
+	attach_task_rt_rq(p);
+}
+#endif
+
 static void check_preempt_equal_prio(struct rq *rq, struct task_struct *p)
 {
 	/*
@@ -1393,6 +1956,10 @@ static void check_preempt_equal_prio(struct rq *rq, struct task_struct *p)
 static void check_preempt_curr_rt(struct rq *rq, struct task_struct *p, int flags)
 {
 	if (p->prio < rq->curr->prio) {
+		resched_curr(rq);
+		return;
+	} else if (test_victim_flag(p)) {
+		requeue_task_rt(rq, p, 1);
 		resched_curr(rq);
 		return;
 	}
@@ -1432,19 +1999,52 @@ static struct sched_rt_entity *pick_next_rt_entity(struct rq *rq,
 	return next;
 }
 
+#ifdef CONFIG_SMP
+void init_rt_entity_runnable_average(struct sched_rt_entity *rt_se)
+{
+	struct sched_avg *sa = &rt_se->avg;
+
+	sa->last_update_time = 0;
+	/*
+	* sched_avg's period_contrib should be strictly less then 1024, so
+	* we give it 1023 to make sure it is almost a period (1024us), and
+	* will definitely be update (after enqueue).
+	*/
+	sa->period_contrib = 1023;
+	/*
+	* Tasks are intialized with zero load.
+	* Load is not actually used by RT.
+	*/
+	sa->load_avg = 0;
+	sa->load_sum = 0;
+	/*
+	* At this point, util_avg won't be used in select_task_rq_rt anyway
+	*/
+	sa->util_avg = 0;
+	sa->util_sum = 0;
+	/* when this task enqueue'ed, it will contribute to its rt_rq's load_avg */
+}
+#else /* !CONFIG_SMP */
+void init_rt_entity_runnable_average(struct sched_rt_entity *rt_se) { }
+#endif
+
 static struct task_struct *_pick_next_task_rt(struct rq *rq)
 {
 	struct sched_rt_entity *rt_se;
 	struct task_struct *p;
 	struct rt_rq *rt_rq  = &rq->rt;
+	u64 now = rq_clock_task(rq_of_rt_rq(rt_rq));
 
 	do {
 		rt_se = pick_next_rt_entity(rq, rt_rq);
 		BUG_ON(!rt_se);
+		update_rt_load_avg(now, rt_se, rt_rq, cpu_of(rq_of_rt_rq(rt_rq)));
+		rt_rq->curr = rt_se;		
 		rt_rq = group_rt_rq(rt_se);
 	} while (rt_rq);
 
 	p = rt_task_of(rt_se);
+
 	p->se.exec_start = rq_clock_task(rq);
 
 	return p;
@@ -1495,11 +2095,20 @@ pick_next_task_rt(struct rq *rq, struct task_struct *prev)
 
 	queue_push_tasks(rq);
 
+	update_rt_rq_load_avg(rq_clock_task(rq), cpu_of(rq), rt_rq,
+		rq->curr->sched_class == &rt_sched_class);
+
+	clear_victim_flag(p);
+
 	return p;
 }
 
 static void put_prev_task_rt(struct rq *rq, struct task_struct *p)
 {
+	struct sched_rt_entity *rt_se = &p->rt;
+	struct rt_rq *rt_rq = rt_rq_of_se(rt_se);
+	u64 now = rq_clock_task(rq_of_rt_rq(rt_rq));
+
 	update_curr_rt(rq);
 
 	/*
@@ -1508,6 +2117,14 @@ static void put_prev_task_rt(struct rq *rq, struct task_struct *p)
 	 */
 	if (on_rt_rq(&p->rt) && p->nr_cpus_allowed > 1)
 		enqueue_pushable_task(rq, p);
+
+	for_each_sched_rt_entity(rt_se) {
+		struct rt_rq *rt_rq = rt_rq_of_se(rt_se);
+		if (on_rt_rq(rt_se))
+			update_rt_load_avg(now, rt_se, rt_rq, cpu_of(rq_of_rt_rq(rt_rq)));
+
+		rt_rq->curr = NULL;
+	}
 }
 
 #ifdef CONFIG_SMP
@@ -1545,12 +2162,345 @@ static struct task_struct *pick_highest_pushable_task(struct rq *rq, int cpu)
 
 static DEFINE_PER_CPU(cpumask_var_t, local_cpu_mask);
 
+#ifdef CONFIG_SCHED_USE_FLUID_RT
+unsigned int frt_boost_threshold;
+unsigned int sysctl_sched_restrict_cluster_spill = 0;
+
+static inline int weight_from_rtprio(int prio)
+{
+	int idx = (prio >> 1);
+
+	if ((idx << 1) == prio)
+		return rtprio_to_weight[idx];
+	else
+		return ((rtprio_to_weight[idx] + rtprio_to_weight[idx+1]) >> 1);
+}
+
+/* Check if cpu is in fastest hmp_domain */
+static inline unsigned int hmp_cpu_is_fastest(int cpu)
+{
+	struct list_head *pos;
+
+	if (!cpumask_test_cpu(cpu, cpu_active_mask)) {
+		return 0;
+	} else {
+		pos = &hmp_cpu_domain(cpu)->hmp_domains;
+		return pos == hmp_domains.next;
+	}
+}
+
+/* Check if cpu is in slowest hmp_domain */
+static inline unsigned int hmp_cpu_is_slowest(int cpu)
+{
+	struct list_head *pos;
+
+	if (!cpumask_test_cpu(cpu, cpu_active_mask)) {
+		return 1;
+	} else {
+		pos = &hmp_cpu_domain(cpu)->hmp_domains;
+		return list_is_last(pos, &hmp_domains);
+	}
+}
+
+
+/* Next (slower) hmp_domain relative to cpu */
+static inline struct hmp_domain *hmp_slower_domain(int cpu)
+{
+	struct list_head *pos;
+
+	if (hmp_cpu_is_slowest(cpu))
+		return hmp_cpu_domain(cpu);
+
+	pos = &hmp_cpu_domain(cpu)->hmp_domains;
+	return list_entry(pos->next, struct hmp_domain, hmp_domains);
+}
+
+/* Previous (faster) hmp_domain relative to cpu */
+static inline struct hmp_domain *hmp_faster_domain(int cpu)
+{
+	struct list_head *pos;
+
+	if (hmp_cpu_is_fastest(cpu))
+		return hmp_cpu_domain(cpu);
+
+	pos = &hmp_cpu_domain(cpu)->hmp_domains;
+
+	return list_entry(pos->prev, struct hmp_domain, hmp_domains);
+}
+
+static int find_victim_rt_rq(struct task_struct *task, struct cpumask *domain_cpu_mask, int *best_cpu)
+{
+	int i;
+	unsigned long victim_rtweight, target_rtweight, min_rtweight;
+	unsigned int victim_cpu_cap, min_cpu_cap = arch_scale_cpu_capacity(NULL, task_cpu(task));
+	bool victim_rt = true;
+
+	target_rtweight = task->rt.avg.util_avg * weight_from_rtprio(task->prio);
+	min_rtweight = target_rtweight;
+
+	for_each_cpu(i, domain_cpu_mask) {
+		struct task_struct *victim = cpu_rq(i)->curr;
+
+		if (victim->nr_cpus_allowed < 2)
+			continue;
+
+		if (!cpumask_test_cpu(i, tsk_cpus_allowed(task)))
+			continue;
+
+		if (rt_task(victim)) {
+			victim_cpu_cap = arch_scale_cpu_capacity(NULL, i);
+			victim_rtweight = victim->rt.avg.util_avg * weight_from_rtprio(victim->prio);
+
+			if (min_cpu_cap == victim_cpu_cap) {
+				if (victim_rtweight < min_rtweight) {
+					min_rtweight = victim_rtweight;
+					*best_cpu = i;
+					min_cpu_cap = victim_cpu_cap;
+				}
+			} else {
+				/*
+				* It's necessary to un-cap the cpu capacity when comparing
+				* utilization of each CPU. This is why the Fluid RT tries to give
+				* the green light on big CPU to the long-run RT task
+				* in accordance with the priority.
+				*/
+				if (victim_rtweight * min_cpu_cap < min_rtweight * victim_cpu_cap) {
+					min_rtweight = victim_rtweight;
+					*best_cpu = i;
+					min_cpu_cap = victim_cpu_cap;
+				}
+			}
+		} else {
+			/* If Non-RT CPU is exist, select it first */
+			*best_cpu = i;
+			victim_rt = false;
+			trace_sched_fluid_victim_rt_cpu(task, victim, *best_cpu, "Victim Normal");			
+			break;
+		}
+	}
+
+	if (*best_cpu >= 0 && victim_rt) {
+		set_victim_flag(cpu_rq(*best_cpu)->curr);
+		trace_sched_fluid_victim_rt_cpu(task, cpu_rq(*best_cpu)->curr, *best_cpu, "Victim RT Task");
+	}
+
+	return *best_cpu;
+}
+
+static int find_lowest_rq_fluid(struct task_struct *task)
+{
+	struct cpumask *lowest_mask = this_cpu_cpumask_var_ptr(local_cpu_mask);
+	struct cpumask candidate_mask = CPU_MASK_NONE;
+	struct hmp_domain *hmpd = NULL;
+	struct cpumask *hmp_cpu_mask;
+	int best_cpu = -1;
+	int prev_cpu = task_cpu(task);
+	int this_cpu = smp_processor_id();
+	int boost = false;
+	u64 cpu_load, min_load = ULLONG_MAX;
+	int i;
+	struct cpumask tmp_mask;
+
+	/* Make sure the mask is initialized first */
+	if (unlikely(!lowest_mask))
+		return best_cpu;
+
+	if (task->nr_cpus_allowed == 1)
+		return best_cpu; /* No other targets possible */
+
+	if (task->rt.avg.util_avg > frt_boost_threshold)
+		boost = true;
+
+	cpupri_find(&task_rq(task)->rd->cpupri, task, lowest_mask);
+
+	if (!cpumask_test_cpu(prev_cpu,cpu_active_mask)) {
+		prev_cpu = this_cpu;
+	}
+
+	rcu_read_lock();
+
+	if (sysctl_sched_restrict_cluster_spill) {
+		hmpd = hmp_cpu_domain(prev_cpu);
+	} else {
+		hmpd = boost ? \
+			hmp_faster_domain(prev_cpu) : \
+			hmp_slower_domain(prev_cpu);
+	}
+
+	if (!hmpd)
+		goto skip;
+
+	do {
+		cpumask_and(&tmp_mask, &hmpd->cpus, cpu_active_mask);
+		hmp_cpu_mask = &tmp_mask;
+		min_load = ULLONG_MAX;
+
+		for_each_cpu_and(i, hmp_cpu_mask, lowest_mask) {
+			struct task_struct * curr_task = cpu_rq(i)->curr;
+			struct sched_domain *sd;
+
+			sd = rcu_dereference_check_sched_domain(cpu_rq(i)->sd);
+
+			if (sd->flags & SD_WAKE_AFFINE) {
+				if(cpumask_test_cpu(this_cpu, sched_domain_span(sd))) {
+					rcu_read_unlock();
+					return this_cpu;
+				}
+			}
+
+			/* Non-RT runqueue has priority for placement */
+			if (rt_task(curr_task)) {
+				if (curr_task->nr_cpus_allowed > 1)
+					cpumask_set_cpu(i, &candidate_mask);
+				continue;
+			}
+
+			if (!cpumask_test_cpu(i, tsk_cpus_allowed(task)))
+				continue;
+
+			cpu_load = cpu_util(i);
+
+			if (cpu_load < min_load ||
+				(cpu_load == min_load && i == prev_cpu)) {
+				min_load = cpu_load;
+				best_cpu = i;
+			}
+		}
+
+		/* best non-rt cpu is exist? */
+		if (best_cpu != -1) {
+			trace_sched_fluid_select_norm_cpu(task, i, cpu_load, min_load, best_cpu);
+			break;
+		}
+
+		/* Any lower-prio rt cpu is exist ? */
+		if (!cpumask_empty(&candidate_mask)) {
+			best_cpu = cpumask_any(&candidate_mask);
+			trace_sched_fluid_victim_rt_cpu(task, cpu_rq(best_cpu)->curr, best_cpu, "Victim Candiate RT CPU");
+			break;
+		}
+
+		/* Is there available any victim cpu? */
+		if (find_victim_rt_rq(task, hmp_cpu_mask, &best_cpu) != -1)
+			break;
+
+		/*
+		* If cluster restrict or boost is enabled,
+		* We must select cpu of sepecific cluster.
+		*/
+		if (sysctl_sched_restrict_cluster_spill) {
+			best_cpu = cpumask_any_and(hmp_cpu_mask,
+					tsk_cpus_allowed(task));
+			trace_sched_fluid_victim_rt_cpu(task, cpu_rq(best_cpu)->curr, best_cpu, "Any CPU on Restrict Cluster");
+			break;
+		}
+
+		if (((hmp_cpu_is_fastest(cpumask_any(hmp_cpu_mask))) && !boost) ||
+			(boost && (hmp_cpu_is_slowest(cpumask_any(hmp_cpu_mask)))))
+			break;
+
+		hmpd = boost ? \
+			hmp_slower_domain(cpumask_any(hmp_cpu_mask)) : \
+			hmp_faster_domain(cpumask_any(hmp_cpu_mask));
+
+	} while (!hmpd && !cpumask_empty(&hmpd->cpus));
+
+skip:
+	rcu_read_unlock();
+
+	return best_cpu;
+}
+
+static ssize_t show_frt_boost_threshold(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	return snprintf(buf, 10, "%u\n", frt_boost_threshold);
+}
+
+static ssize_t store_frt_boost_threshold(struct kobject *kobj,
+		struct kobj_attribute *attr, const char *buf,
+		size_t count)
+{
+	int input;
+
+	if (!sscanf(buf, "%d", &input))
+		return -EINVAL;
+
+	input = input < 0 ? 0 : input;
+	input = input > 1024 ? 1024 : input;
+
+	frt_boost_threshold = input;
+
+	return count;
+}
+
+static struct kobj_attribute frt_boost_threshold_attr =
+__ATTR(boost_frt_threshold, 0644, show_frt_boost_threshold,
+		store_frt_boost_threshold);
+#endif
+
+static ssize_t show_switch_rt_load_ratio(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	return snprintf(buf, 10, "%u\n", sched_switch_to_rt_load_ratio);
+}
+
+static ssize_t store_switch_rt_load_ratio(struct kobject *kobj,
+		struct kobj_attribute *attr, const char *buf,
+		size_t count)
+{
+	int input;
+
+	if (!sscanf(buf, "%d", &input))
+		return -EINVAL;
+
+	input = input < 0 ? 0 : input;
+
+	sched_switch_to_rt_load_ratio = input;
+
+	return count;
+}
+
+static ssize_t show_switch_fair_load_ratio(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	return snprintf(buf, 10, "%u\n", sched_switch_to_fair_load_ratio);
+}
+
+static ssize_t store_switch_fair_load_ratio(struct kobject *kobj,
+		struct kobj_attribute *attr, const char *buf,
+		size_t count)
+{
+	int input;
+
+	if (!sscanf(buf, "%d", &input))
+		return -EINVAL;
+
+	input = input < 0 ? 0 : input;
+
+	sched_switch_to_fair_load_ratio = input;
+
+	return count;
+}
+
+static struct kobj_attribute switch_fair_load_ratio_attr =
+__ATTR(switch_fair_load_ratio, 0644, show_switch_fair_load_ratio,
+		store_switch_fair_load_ratio);
+
+static struct kobj_attribute switch_rt_load_ratio_attr =
+__ATTR(switch_rt_load_ratio, 0644, show_switch_rt_load_ratio,
+		store_switch_rt_load_ratio);
+
 static int find_lowest_rq(struct task_struct *task)
 {
 	struct sched_domain *sd;
 	struct cpumask *lowest_mask = this_cpu_cpumask_var_ptr(local_cpu_mask);
 	int this_cpu = smp_processor_id();
 	int cpu      = task_cpu(task);
+
+#ifdef CONFIG_SCHED_USE_FLUID_RT
+	return find_lowest_rq_fluid(task);
+#endif
 
 	/* Make sure the mask is initialized first */
 	if (unlikely(!lowest_mask))
@@ -1656,6 +2606,7 @@ static struct rq *find_lock_lowest_rq(struct task_struct *task, struct rq *rq)
 				     !cpumask_test_cpu(lowest_rq->cpu,
 						       tsk_cpus_allowed(task)) ||
 				     task_running(rq, task) ||
+				     !rt_task(task) ||
 				     !task_on_rq_queued(task))) {
 
 				double_unlock_balance(rq, lowest_rq);
@@ -1791,166 +2742,160 @@ static void push_rt_tasks(struct rq *rq)
 }
 
 #ifdef HAVE_RT_PUSH_IPI
-
 /*
- * When a high priority task schedules out from a CPU and a lower priority
- * task is scheduled in, a check is made to see if there's any RT tasks
- * on other CPUs that are waiting to run because a higher priority RT task
- * is currently running on its CPU. In this case, the CPU with multiple RT
- * tasks queued on it (overloaded) needs to be notified that a CPU has opened
- * up that may be able to run one of its non-running queued RT tasks.
+ * The search for the next cpu always starts at rq->cpu and ends
+ * when we reach rq->cpu again. It will never return rq->cpu.
+ * This returns the next cpu to check, or nr_cpu_ids if the loop
+ * is complete.
  *
- * All CPUs with overloaded RT tasks need to be notified as there is currently
- * no way to know which of these CPUs have the highest priority task waiting
- * to run. Instead of trying to take a spinlock on each of these CPUs,
- * which has shown to cause large latency when done on machines with many
- * CPUs, sending an IPI to the CPUs to have them push off the overloaded
- * RT tasks waiting to run.
- *
- * Just sending an IPI to each of the CPUs is also an issue, as on large
- * count CPU machines, this can cause an IPI storm on a CPU, especially
- * if its the only CPU with multiple RT tasks queued, and a large number
- * of CPUs scheduling a lower priority task at the same time.
- *
- * Each root domain has its own irq work function that can iterate over
- * all CPUs with RT overloaded tasks. Since all CPUs with overloaded RT
- * tassk must be checked if there's one or many CPUs that are lowering
- * their priority, there's a single irq work iterator that will try to
- * push off RT tasks that are waiting to run.
- *
- * When a CPU schedules a lower priority task, it will kick off the
- * irq work iterator that will jump to each CPU with overloaded RT tasks.
- * As it only takes the first CPU that schedules a lower priority task
- * to start the process, the rto_start variable is incremented and if
- * the atomic result is one, then that CPU will try to take the rto_lock.
- * This prevents high contention on the lock as the process handles all
- * CPUs scheduling lower priority tasks.
- *
- * All CPUs that are scheduling a lower priority task will increment the
- * rt_loop_next variable. This will make sure that the irq work iterator
- * checks all RT overloaded CPUs whenever a CPU schedules a new lower
- * priority task, even if the iterator is in the middle of a scan. Incrementing
- * the rt_loop_next will cause the iterator to perform another scan.
- *
+ * rq->rt.push_cpu holds the last cpu returned by this function,
+ * or if this is the first instance, it must hold rq->cpu.
  */
 static int rto_next_cpu(struct rq *rq)
 {
-	struct root_domain *rd = rq->rd;
-	int next;
+	int prev_cpu = rq->rt.push_cpu;
 	int cpu;
 
+	cpu = cpumask_next(prev_cpu, rq->rd->rto_mask);
+
 	/*
-	 * When starting the IPI RT pushing, the rto_cpu is set to -1,
-	 * rt_next_cpu() will simply return the first CPU found in
-	 * the rto_mask.
-	 *
-	 * If rto_next_cpu() is called with rto_cpu is a valid cpu, it
-	 * will return the next CPU found in the rto_mask.
-	 *
-	 * If there are no more CPUs left in the rto_mask, then a check is made
-	 * against rto_loop and rto_loop_next. rto_loop is only updated with
-	 * the rto_lock held, but any CPU may increment the rto_loop_next
-	 * without any locking.
+	 * If the previous cpu is less than the rq's CPU, then it already
+	 * passed the end of the mask, and has started from the beginning.
+	 * We end if the next CPU is greater or equal to rq's CPU.
 	 */
-	for (;;) {
+	if (prev_cpu < rq->cpu) {
+		if (cpu >= rq->cpu)
+			return nr_cpu_ids;
 
-		/* When rto_cpu is -1 this acts like cpumask_first() */
-		cpu = cpumask_next(rd->rto_cpu, rd->rto_mask);
-
-		rd->rto_cpu = cpu;
-
-		if (cpu < nr_cpu_ids)
-			return cpu;
-
-		rd->rto_cpu = -1;
-
+	} else if (cpu >= nr_cpu_ids) {
 		/*
-		 * ACQUIRE ensures we see the @rto_mask changes
-		 * made prior to the @next value observed.
-		 *
-		 * Matches WMB in rt_set_overload().
+		 * We passed the end of the mask, start at the beginning.
+		 * If the result is greater or equal to the rq's CPU, then
+		 * the loop is finished.
 		 */
-		next = atomic_read_acquire(&rd->rto_loop_next);
-
-		if (rd->rto_loop == next)
-			break;
-
-		rd->rto_loop = next;
+		cpu = cpumask_first(rq->rd->rto_mask);
+		if (cpu >= rq->cpu)
+			return nr_cpu_ids;
 	}
+	rq->rt.push_cpu = cpu;
 
-	return -1;
+	/* Return cpu to let the caller know if the loop is finished or not */
+	return cpu;
 }
 
-static inline bool rto_start_trylock(atomic_t *v)
+static int find_next_push_cpu(struct rq *rq)
 {
-	return !atomic_cmpxchg_acquire(v, 0, 1);
+	struct rq *next_rq;
+	int cpu;
+
+	while (1) {
+		cpu = rto_next_cpu(rq);
+		if (cpu >= nr_cpu_ids)
+			break;
+		next_rq = cpu_rq(cpu);
+
+		/* Make sure the next rq can push to this rq */
+		if (next_rq->rt.highest_prio.next < rq->rt.highest_prio.curr)
+			break;
 }
 
-static inline void rto_start_unlock(atomic_t *v)
-{
-	atomic_set_release(v, 0);
+	return cpu;
 }
+
+#define RT_PUSH_IPI_EXECUTING		1
+#define RT_PUSH_IPI_RESTART		2
 
 static void tell_cpu_to_push(struct rq *rq)
 {
-	int cpu = -1;
+	int cpu;
 
-	/* Keep the loop going if the IPI is currently active */
-	atomic_inc(&rq->rd->rto_loop_next);
+	if (rq->rt.push_flags & RT_PUSH_IPI_EXECUTING) {
+		raw_spin_lock(&rq->rt.push_lock);
+		/* Make sure it's still executing */
+		if (rq->rt.push_flags & RT_PUSH_IPI_EXECUTING) {
+	/*
+			 * Tell the IPI to restart the loop as things have
+			 * changed since it started.
+	 */
+			rq->rt.push_flags |= RT_PUSH_IPI_RESTART;
+			raw_spin_unlock(&rq->rt.push_lock);
+			return;
+		}
+		raw_spin_unlock(&rq->rt.push_lock);
+	}
 
-	/* Only one CPU can initiate a loop at a time */
-	if (!rto_start_trylock(&rq->rd->rto_loop_start))
+	/* When here, there's no IPI going around */
+
+	rq->rt.push_cpu = rq->cpu;
+	cpu = find_next_push_cpu(rq);
+	if (cpu >= nr_cpu_ids)
 		return;
 
-	raw_spin_lock(&rq->rd->rto_lock);
+	rq->rt.push_flags = RT_PUSH_IPI_EXECUTING;
 
-	/*
-	 * The rto_cpu is updated under the lock, if it has a valid cpu
-	 * then the IPI is still running and will continue due to the
-	 * update to loop_next, and nothing needs to be done here.
-	 * Otherwise it is finishing up and an ipi needs to be sent.
-	 */
-	if (rq->rd->rto_cpu < 0)
-		cpu = rto_next_cpu(rq);
-
-	raw_spin_unlock(&rq->rd->rto_lock);
-
-	rto_start_unlock(&rq->rd->rto_loop_start);
-
-	if (cpu >= 0)
-		irq_work_queue_on(&rq->rd->rto_push_work, cpu);
+	irq_work_queue_on(&rq->rt.push_work, cpu);
 }
 
 /* Called from hardirq context */
-void rto_push_irq_work_func(struct irq_work *work)
+static void try_to_push_tasks(void *arg)
 {
-	struct rq *rq;
+	struct rt_rq *rt_rq = arg;
+	struct rq *rq, *src_rq;
+	int this_cpu;
 	int cpu;
 
-	rq = this_rq();
+	this_cpu = rt_rq->push_cpu;
 
-	/*
-	 * We do not need to grab the lock to check for has_pushable_tasks.
-	 * When it gets updated, a check is made if a push is possible.
-	 */
+	/* Paranoid check */
+	BUG_ON(this_cpu != smp_processor_id());
+
+	rq = cpu_rq(this_cpu);
+	src_rq = rq_of_rt_rq(rt_rq);
+
+again:
 	if (has_pushable_tasks(rq)) {
 		raw_spin_lock(&rq->lock);
-		push_rt_tasks(rq);
+		push_rt_task(rq);
 		raw_spin_unlock(&rq->lock);
 	}
 
-	raw_spin_lock(&rq->rd->rto_lock);
-
 	/* Pass the IPI to the next rt overloaded queue */
-	cpu = rto_next_cpu(rq);
+	raw_spin_lock(&rt_rq->push_lock);
+	/*
+	 * If the source queue changed since the IPI went out,
+	 * we need to restart the search from that CPU again.
+	 */
+	if (rt_rq->push_flags & RT_PUSH_IPI_RESTART) {
+		rt_rq->push_flags &= ~RT_PUSH_IPI_RESTART;
+		rt_rq->push_cpu = src_rq->cpu;
+	}
 
-	raw_spin_unlock(&rq->rd->rto_lock);
+	cpu = find_next_push_cpu(src_rq);
 
-	if (cpu < 0)
+	if (cpu >= nr_cpu_ids)
+		rt_rq->push_flags &= ~RT_PUSH_IPI_EXECUTING;
+	raw_spin_unlock(&rt_rq->push_lock);
+
+	if (cpu >= nr_cpu_ids)
 		return;
 
+	/*
+	 * It is possible that a restart caused this CPU to be
+	 * chosen again. Don't bother with an IPI, just see if we
+	 * have more to push.
+	 */
+	if (unlikely(cpu == rq->cpu))
+		goto again;
+
 	/* Try the next RT overloaded CPU */
-	irq_work_queue_on(&rq->rd->rto_push_work, cpu);
+	irq_work_queue_on(&rt_rq->push_work, cpu);
+}
+
+static void push_irq_work_func(struct irq_work *work)
+{
+	struct rt_rq *rt_rq = container_of(work, struct rt_rq, push_work);
+
+	try_to_push_tasks(rt_rq);
 }
 #endif /* HAVE_RT_PUSH_IPI */
 
@@ -1960,9 +2905,8 @@ static void pull_rt_task(struct rq *this_rq)
 	bool resched = false;
 	struct task_struct *p;
 	struct rq *src_rq;
-	int rt_overload_count = rt_overloaded(this_rq);
 
-	if (likely(!rt_overload_count))
+	if (likely(!rt_overloaded(this_rq)))
 		return;
 
 	/*
@@ -1970,11 +2914,6 @@ static void pull_rt_task(struct rq *this_rq)
 	 * see overloaded we must also see the rto_mask bit.
 	 */
 	smp_rmb();
-
-	/* If we are the only overloaded CPU do nothing */
-	if (rt_overload_count == 1 &&
-	    cpumask_test_cpu(this_rq->cpu, this_rq->rd->rto_mask))
-		return;
 
 #ifdef HAVE_RT_PUSH_IPI
 	if (sched_feat(RT_PUSH_IPI)) {
@@ -2095,6 +3034,7 @@ static void rq_offline_rt(struct rq *rq)
  */
 static void switched_from_rt(struct rq *rq, struct task_struct *p)
 {
+	detach_task_rt_rq(p);
 	/*
 	 * If there are other RT tasks then we will reschedule
 	 * and the scheduling of the other RT tasks will handle
@@ -2116,9 +3056,17 @@ void __init init_sched_rt_class(void)
 		zalloc_cpumask_var_node(&per_cpu(local_cpu_mask, i),
 					GFP_KERNEL, cpu_to_node(i));
 	}
+
+#ifdef CONFIG_SCHED_USE_FLUID_RT
+	frt_boost_threshold = 0;
+#endif
+	sched_switch_to_rt_load_ratio = 0;
+	sched_switch_to_fair_load_ratio = 0;
 }
 #endif /* CONFIG_SMP */
 
+extern
+void copy_sched_avg(struct sched_avg *from, struct sched_avg *to, unsigned int ratio);
 /*
  * When switching a task to RT, we may overload the runqueue
  * with RT tasks. In this case we try to push them off to
@@ -2126,6 +3074,7 @@ void __init init_sched_rt_class(void)
  */
 static void switched_to_rt(struct rq *rq, struct task_struct *p)
 {
+	 copy_sched_avg(&p->se.avg, &p->rt.avg, sched_switch_to_rt_load_ratio);
 	/*
 	 * If we are already running, then there's nothing
 	 * that needs to be done. But if we are not running
@@ -2137,9 +3086,10 @@ static void switched_to_rt(struct rq *rq, struct task_struct *p)
 #ifdef CONFIG_SMP
 		if (p->nr_cpus_allowed > 1 && rq->rt.overloaded)
 			queue_push_tasks(rq);
-#endif /* CONFIG_SMP */
+#else
 		if (p->prio < rq->curr->prio)
 			resched_curr(rq);
+#endif /* CONFIG_SMP */
 	}
 }
 
@@ -2209,8 +3159,15 @@ static void watchdog(struct rq *rq, struct task_struct *p)
 static void task_tick_rt(struct rq *rq, struct task_struct *p, int queued)
 {
 	struct sched_rt_entity *rt_se = &p->rt;
+	u64 now = rq_clock_task(rq);
 
 	update_curr_rt(rq);
+
+	for_each_sched_rt_entity(rt_se) {
+		struct rt_rq *rt_rq = rt_rq_of_se(rt_se);
+
+		update_rt_load_avg(now, rt_se, rt_rq, cpu_of(rq_of_rt_rq(rt_rq)));
+	}
 
 	watchdog(rq, p);
 
@@ -2242,8 +3199,15 @@ static void task_tick_rt(struct rq *rq, struct task_struct *p, int queued)
 static void set_curr_task_rt(struct rq *rq)
 {
 	struct task_struct *p = rq->curr;
+	struct sched_rt_entity *rt_se = &p->rt;
 
 	p->se.exec_start = rq_clock_task(rq);
+
+	for_each_sched_rt_entity(rt_se) {
+		struct rt_rq *rt_rq = rt_rq_of_se(rt_se);
+
+		rt_rq->curr = rt_se;
+	}
 
 	/* The running task is never eligible for pushing */
 	dequeue_pushable_task(rq, p);
@@ -2272,13 +3236,19 @@ const struct sched_class rt_sched_class = {
 	.put_prev_task		= put_prev_task_rt,
 
 #ifdef CONFIG_SMP
+#ifdef CONFIG_SCHED_USE_FLUID_RT
+	.select_task_rq		= select_task_rq_rt_fluid,
+#else
 	.select_task_rq		= select_task_rq_rt,
+#endif
+	.migrate_task_rq	= migrate_task_rq_rt,
 
 	.set_cpus_allowed       = set_cpus_allowed_common,
 	.rq_online              = rq_online_rt,
 	.rq_offline             = rq_offline_rt,
 	.task_woken		= task_woken_rt,
 	.switched_from		= switched_from_rt,
+	.task_dead		= task_dead_rt,
 #endif
 
 	.set_curr_task          = set_curr_task_rt,
@@ -2290,6 +3260,9 @@ const struct sched_class rt_sched_class = {
 	.switched_to		= switched_to_rt,
 
 	.update_curr		= update_curr_rt,
+#ifdef CONFIG_RT_GROUP_SCHED
+	.task_move_group	= task_move_group_rt,
+#endif
 };
 
 #ifdef CONFIG_SCHED_DEBUG
@@ -2306,3 +3279,32 @@ void print_rt_stats(struct seq_file *m, int cpu)
 	rcu_read_unlock();
 }
 #endif /* CONFIG_SCHED_DEBUG */
+
+/**********************************************************************
+ * Sysfs                                                              *
+ **********************************************************************/
+static struct attribute *ert_attrs[] = {
+#ifdef CONFIG_SCHED_USE_FLUID_RT
+	&frt_boost_threshold_attr.attr,
+#endif
+	&switch_fair_load_ratio_attr.attr,
+	&switch_rt_load_ratio_attr.attr,
+	NULL,
+};
+
+static const struct attribute_group ert_group = {
+	.attrs = ert_attrs,
+};
+
+static struct kobject *ert_kobj;
+
+static int init_sysfs(void)
+{
+	int ret;
+
+	ert_kobj = kobject_create_and_add("ert", kernel_kobj);
+	ret = sysfs_create_group(ert_kobj, &ert_group);
+
+	return 0;
+}
+late_initcall(init_sysfs);

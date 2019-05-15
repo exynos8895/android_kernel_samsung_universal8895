@@ -12,7 +12,7 @@ menuconfig NET
 	  The reason is that some programs need kernel networking support even
 	  when running on a stand-alone machine that isn't connected to any
 	  other computer.
-	  
+
 	  If you are upgrading from an older kernel, you
 	  should consider updating your networking tools too because changes
 	  in the kernel and the tools often go hand in hand. The tools are
@@ -83,8 +83,17 @@ if INET
 source "net/ipv4/Kconfig"
 source "net/ipv6/Kconfig"
 source "net/netlabel/Kconfig"
+#ifdef CONFIG_MPTCP
+	source "net/mptcp/Kconfig"
+#endif
 
 endif # if INET
+
+config ANDROID_PARANOID_NETWORK
+	bool "Only allow certain groups to create sockets"
+	default y
+	help
+		none
 
 config NETWORK_SECMARK
 	bool "Security Marking"
@@ -233,6 +242,7 @@ source "net/mpls/Kconfig"
 source "net/hsr/Kconfig"
 source "net/switchdev/Kconfig"
 source "net/l3mdev/Kconfig"
+source "net/ncm/Kconfig"
 
 config RPS
 	bool
@@ -325,7 +335,7 @@ config NET_TCPPROBE
 
 	Documentation on how to use TCP connection probing can be found
 	at:
-	
+
 	  http://www.linuxfoundation.org/collaborate/workgroups/networking/tcpprobe
 
 	To compile this code as a module, choose M here: the
@@ -388,3 +398,10 @@ endif   # if NET
 # Used by archs to tell that they support BPF_JIT
 config HAVE_BPF_JIT
 	bool
+
+# Cross Layer TCP
+config CLTCP
+	bool "Cross Layer TCP"
+	---help---
+	This feature implements Cross Layer TCP (CLTCP)
+

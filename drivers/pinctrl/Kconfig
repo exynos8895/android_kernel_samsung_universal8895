@@ -247,6 +247,10 @@ config PINCTRL_ZYNQ
 	help
 	  This selectes the pinctrl driver for Xilinx Zynq.
 
+config SENSORS_FP_SPI_GPIO
+	depends on SENSORS_FINGERPRINT
+	string "Fingerprint spi gpio name"
+
 source "drivers/pinctrl/bcm/Kconfig"
 source "drivers/pinctrl/berlin/Kconfig"
 source "drivers/pinctrl/freescale/Kconfig"

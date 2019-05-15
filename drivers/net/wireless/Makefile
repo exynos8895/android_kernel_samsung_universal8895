@@ -55,6 +55,12 @@ obj-$(CONFIG_WL_TI)	+= ti/
 
 obj-$(CONFIG_MWIFIEX)	+= mwifiex/
 
+ifneq ($(CONFIG_BCM4361),)
+obj-$(CONFIG_BCM4361)   += bcmdhd4361/
+obj-$(CONFIG_SOC_EXYNOS8895) += bcmdhd4361/dhd_custom_memprealloc.o
+obj-$(CONFIG_SOC_EXYNOS8895) += bcmdhd4361/dhd_custom_exynos.o
+endif
+
 obj-$(CONFIG_BRCMFMAC)	+= brcm80211/
 obj-$(CONFIG_BRCMSMAC)	+= brcm80211/
 

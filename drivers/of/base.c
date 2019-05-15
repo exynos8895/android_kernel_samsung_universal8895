@@ -362,6 +362,12 @@ static bool __of_find_n_match_cpu_property(struct device_node *cpun,
 	return false;
 }
 
+bool of_find_n_match_cpu_property(struct device_node *cpun,
+			const char *prop_name, int cpu, unsigned int *thread)
+{
+	return __of_find_n_match_cpu_property(cpun, prop_name, cpu, thread);
+}
+
 /*
  * arch_find_n_match_cpu_physical_id - See if the given device node is
  * for the cpu corresponding to logical cpu 'cpu'.  Return true if so,

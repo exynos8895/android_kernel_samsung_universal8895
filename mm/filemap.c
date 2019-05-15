@@ -36,6 +36,10 @@
 #include <linux/rmap.h>
 #include "internal.h"
 
+#ifdef CONFIG_SDP
+#include <sdp/cache_cleanup.h>
+#endif
+
 #define CREATE_TRACE_POINTS
 #include <trace/events/filemap.h>
 
@@ -232,6 +236,11 @@ void __delete_from_page_cache(struct page *page, void *shadow,
 			      struct mem_cgroup *memcg)
 {
 	struct address_space *mapping = page->mapping;
+
+#ifdef CONFIG_SDP
+	if(mapping_sensitive(mapping))
+		sdp_page_cleanup(page);
+#endif
 
 	trace_mm_filemap_delete_from_page_cache(page);
 	/*
@@ -1863,6 +1872,7 @@ static void do_sync_mmap_readahead(struct vm_area_struct *vma,
 				   struct file *file,
 				   pgoff_t offset)
 {
+	unsigned long ra_pages;
 	struct address_space *mapping = file->f_mapping;
 
 	/* If we don't want any read-ahead, don't bother */
@@ -1891,9 +1901,17 @@ static void do_sync_mmap_readahead(struct vm_area_struct *vma,
 	/*
 	 * mmap read-around
 	 */
-	ra->start = max_t(long, 0, offset - ra->ra_pages / 2);
-	ra->size = ra->ra_pages;
-	ra->async_size = ra->ra_pages / 4;
+#if CONFIG_MMAP_READAROUND_LIMIT == 0
+	ra_pages = ra->ra_pages;
+#else
+	if (ra->ra_pages > CONFIG_MMAP_READAROUND_LIMIT)
+		ra_pages = CONFIG_MMAP_READAROUND_LIMIT;
+	else
+		ra_pages = ra->ra_pages;
+#endif
+	ra->start = max_t(long, 0, offset - ra_pages / 2);
+	ra->size = ra_pages;
+	ra->async_size = ra_pages / 4;
 	ra_submit(ra, mapping, file);
 }
 

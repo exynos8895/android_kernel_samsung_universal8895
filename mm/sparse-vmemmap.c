@@ -94,8 +94,8 @@ void __meminit vmemmap_verify(pte_t *pte, int node,
 	int actual_node = early_pfn_to_nid(pfn);
 
 	if (node_distance(actual_node, node) > LOCAL_DISTANCE)
-		printk(KERN_WARNING "[%lx-%lx] potential offnode "
-			"page_structs\n", start, end - 1);
+		printk(KERN_WARNING "[%lx-%lx] potential offnode page_structs\n",
+		       start, end - 1);
 }
 
 pte_t * __meminit vmemmap_pte_populate(pmd_t *pmd, unsigned long addr, int node)
@@ -126,9 +126,16 @@ pmd_t * __meminit vmemmap_pmd_populate(pud_t *pud, unsigned long addr, int node)
 
 pud_t * __meminit vmemmap_pud_populate(pgd_t *pgd, unsigned long addr, int node)
 {
+#ifdef CONFIG_RKP
+	void *p = NULL ;
+#endif 	
 	pud_t *pud = pud_offset(pgd, addr);
 	if (pud_none(*pud)) {
+#ifdef CONFIG_RKP
+		p =  rkp_ro_alloc();
+#else /* !CONFIG_RKP */
 		void *p = vmemmap_alloc_block(PAGE_SIZE, node);
+#endif
 		if (!p)
 			return NULL;
 		pud_populate(&init_mm, pud, p);
@@ -220,8 +227,8 @@ void __init sparse_mem_maps_populate_node(struct page **map_map,
 		if (map_map[pnum])
 			continue;
 		ms = __nr_to_section(pnum);
-		printk(KERN_ERR "%s: sparsemem memory map backing failed "
-			"some memory will not be available.\n", __func__);
+		printk(KERN_ERR "%s: sparsemem memory map backing failed some memory will not be available.\n",
+		       __func__);
 		ms->section_mem_map = 0;
 	}
 

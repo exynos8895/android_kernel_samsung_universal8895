@@ -17,9 +17,6 @@
 #include <linux/crypto.h>
 #include <linux/module.h>
 
-#define ASM_EXPORT(sym, val) \
-	asm(".globl " #sym "; .set " #sym ", %0" :: "I"(val));
-
 MODULE_DESCRIPTION("SHA1 secure hash using ARMv8 Crypto Extensions");
 MODULE_AUTHOR("Ard Biesheuvel <ard.biesheuvel@linaro.org>");
 MODULE_LICENSE("GPL v2");
@@ -32,13 +29,16 @@ struct sha1_ce_state {
 asmlinkage void sha1_ce_transform(struct sha1_ce_state *sst, u8 const *src,
 				  int blocks);
 
+const u32 sha1_ce_offsetof_count = offsetof(struct sha1_ce_state, sst.count);
+const u32 sha1_ce_offsetof_finalize = offsetof(struct sha1_ce_state, finalize);
+
 static int sha1_ce_update(struct shash_desc *desc, const u8 *data,
 			  unsigned int len)
 {
 	struct sha1_ce_state *sctx = shash_desc_ctx(desc);
 
 	sctx->finalize = 0;
-	kernel_neon_begin_partial(16);
+	kernel_neon_begin();
 	sha1_base_do_update(desc, data, len,
 			    (sha1_block_fn *)sha1_ce_transform);
 	kernel_neon_end();
@@ -52,18 +52,13 @@ static int sha1_ce_finup(struct shash_desc *desc, const u8 *data,
 	struct sha1_ce_state *sctx = shash_desc_ctx(desc);
 	bool finalize = !sctx->sst.count && !(len % SHA1_BLOCK_SIZE);
 
-	ASM_EXPORT(sha1_ce_offsetof_count,
-		   offsetof(struct sha1_ce_state, sst.count));
-	ASM_EXPORT(sha1_ce_offsetof_finalize,
-		   offsetof(struct sha1_ce_state, finalize));
-
 	/*
 	 * Allow the asm code to perform the finalization if there is no
 	 * partial data and the input is a round multiple of the block size.
 	 */
 	sctx->finalize = finalize;
 
-	kernel_neon_begin_partial(16);
+	kernel_neon_begin();
 	sha1_base_do_update(desc, data, len,
 			    (sha1_block_fn *)sha1_ce_transform);
 	if (!finalize)
@@ -77,7 +72,7 @@ static int sha1_ce_final(struct shash_desc *desc, u8 *out)
 	struct sha1_ce_state *sctx = shash_desc_ctx(desc);
 
 	sctx->finalize = 0;
-	kernel_neon_begin_partial(16);
+	kernel_neon_begin();
 	sha1_base_do_finalize(desc, (sha1_block_fn *)sha1_ce_transform);
 	kernel_neon_end();
 	return sha1_base_finish(desc, out);

@@ -81,6 +81,8 @@ typedef int (*dm_message_fn) (struct dm_target *ti, unsigned argc, char **argv);
 
 typedef int (*dm_prepare_ioctl_fn) (struct dm_target *ti,
 			    struct block_device **bdev, fmode_t *mode);
+typedef int (*dm_ioctl_fn) (struct dm_target *ti, unsigned int cmd,
+			    unsigned long arg);	    
 
 /*
  * These iteration functions are typically used to check (and combine)
@@ -162,6 +164,7 @@ struct target_type {
 	dm_busy_fn busy;
 	dm_iterate_devices_fn iterate_devices;
 	dm_io_hints_fn io_hints;
+	dm_ioctl_fn ioctl;
 
 	/* For internal device-mapper use. */
 	struct list_head list;
@@ -383,6 +386,12 @@ void dm_set_mdptr(struct mapped_device *md, void *ptr);
 void *dm_get_mdptr(struct mapped_device *md);
 
 /*
+ * Export the device via the ioctl interface (uses mdptr).
+ */
+int dm_ioctl_export(struct mapped_device *md, const char *name,
+		    const char *uuid);
+
+/*
  * A device can still be used while suspended, but I/O is deferred.
  */
 int dm_suspend(struct mapped_device *md, unsigned suspend_flags);
@@ -408,6 +417,13 @@ void dm_accept_partial_bio(struct bio *bio, unsigned n_sectors);
 union map_info *dm_get_rq_mapinfo(struct request *rq);
 
 struct queue_limits *dm_get_queue_limits(struct mapped_device *md);
+
+void dm_lock_md_type(struct mapped_device *md);
+void dm_unlock_md_type(struct mapped_device *md);
+void dm_set_md_type(struct mapped_device *md, unsigned type);
+unsigned dm_get_md_type(struct mapped_device *md);
+int dm_setup_md_queue(struct mapped_device *md);
+unsigned dm_table_get_type(struct dm_table *t);
 
 /*
  * Geometry functions.

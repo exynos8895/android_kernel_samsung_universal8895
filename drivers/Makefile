@@ -19,6 +19,7 @@ obj-$(CONFIG_PARISC)		+= parisc/
 obj-$(CONFIG_RAPIDIO)		+= rapidio/
 obj-y				+= video/
 obj-y				+= idle/
+obj-y				+= trace/
 
 # IPMI must come before ACPI in order to provide IPMI opregion support
 obj-$(CONFIG_IPMI_HANDLER)	+= char/ipmi/
@@ -61,6 +62,9 @@ obj-$(CONFIG_CONNECTOR)		+= connector/
 # i810fb and intelfb depend on char/agp/
 obj-$(CONFIG_FB_I810)           += video/fbdev/i810/
 obj-$(CONFIG_FB_INTEL)          += video/fbdev/intelfb/
+
+obj-$(CONFIG_VBUS_NOTIFIER)	+= staging/samsung/sec_notifier/
+obj-$(CONFIG_USE_MUIC)		+= muic/
 
 obj-$(CONFIG_PARPORT)		+= parport/
 obj-$(CONFIG_NVM)		+= lightnvm/
@@ -123,6 +127,7 @@ obj-$(CONFIG_CPU_IDLE)		+= cpuidle/
 obj-y				+= mmc/
 obj-$(CONFIG_MEMSTICK)		+= memstick/
 obj-y				+= leds/
+obj-$(CONFIG_SWITCH)            += switch/
 obj-$(CONFIG_INFINIBAND)	+= infiniband/
 obj-$(CONFIG_SGI_SN)		+= sn/
 obj-y				+= firmware/
@@ -155,6 +160,11 @@ obj-$(CONFIG_VIRT_DRIVERS)	+= virt/
 obj-$(CONFIG_HYPERV)		+= hv/
 
 obj-$(CONFIG_PM_DEVFREQ)	+= devfreq/
+ifeq ($(CONFIG_BATTERY_SAMSUNG_V2), y)
+  obj-$(CONFIG_BATTERY_SAMSUNG)   += battery_v2/
+else
+  obj-$(CONFIG_BATTERY_SAMSUNG)   += battery/
+endif
 obj-$(CONFIG_EXTCON)		+= extcon/
 obj-$(CONFIG_MEMORY)		+= memory/
 obj-$(CONFIG_IIO)		+= iio/
@@ -173,3 +183,42 @@ obj-$(CONFIG_STM)		+= hwtracing/stm/
 obj-$(CONFIG_ANDROID)		+= android/
 obj-$(CONFIG_NVMEM)		+= nvmem/
 obj-$(CONFIG_FPGA)		+= fpga/
+obj-$(CONFIG_TEE)		+= tee/
+
+obj-$(CONFIG_EXYNOS_BTS)	+= bts/
+
+# Mobicore driver
+obj-$(CONFIG_TRUSTONIC_TEE)	+= gud/
+
+obj-$(CONFIG_VISION_SUPPORT)    += vision/
+
+# Sensorhub driver
+obj-$(CONFIG_SENSORS_SSP)	+= sensorhub/
+
+# HRM sensor driver
+obj-$(CONFIG_SENSORS_MAX86900)	+= optics/
+obj-$(CONFIG_SENSORS_MAX86902)	+= optics/
+obj-$(CONFIG_SENSORS_ADPD142)	+= optics/
+obj-$(CONFIG_SENSORS_ADPD143)	+= optics/
+obj-$(CONFIG_SENSORS_HRMSENSOR)	+= optics/
+
+# Fingeprint sensor driver
+obj-$(CONFIG_SENSORS_FINGERPRINT)	+= fingerprint/
+
+# COMBO REDRIVER
+obj-$(CONFIG_COMBO_REDRIVER)	+= redriver/
+
+# Gps driver
+obj-$(CONFIG_GPS_BCMxxxxx)	+= gps/
+
+# Motor
+obj-y                           += motor/
+
+# CCIC
+obj-y	+= ccic/
+
+# Gator for ARM DS5 tool
+obj-$(CONFIG_GATOR)	+= gator_5.26/
+
+# RKP
+obj-$(CONFIG_RKP) 		+= rkp/

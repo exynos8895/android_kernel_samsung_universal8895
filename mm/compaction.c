@@ -7,6 +7,7 @@
  *
  * Copyright IBM Corp. 2007-2010 Mel Gorman <mel@csn.ul.ie>
  */
+#include <linux/cpu.h>
 #include <linux/swap.h>
 #include <linux/migrate.h>
 #include <linux/compaction.h>
@@ -14,9 +15,10 @@
 #include <linux/backing-dev.h>
 #include <linux/sysctl.h>
 #include <linux/sysfs.h>
-#include <linux/balloon_compaction.h>
 #include <linux/page-isolation.h>
 #include <linux/kasan.h>
+#include <linux/kthread.h>
+#include <linux/freezer.h>
 #include "internal.h"
 
 #ifdef CONFIG_COMPACTION
@@ -68,7 +70,7 @@ static void map_pages(struct list_head *list)
 
 static inline bool migrate_async_suitable(int migratetype)
 {
-	return is_migrate_cma(migratetype) || migratetype == MIGRATE_MOVABLE;
+	return migratetype == MIGRATE_MOVABLE;
 }
 
 /*
@@ -115,6 +117,44 @@ static struct page *pageblock_pfn_to_page(unsigned long start_pfn,
 }
 
 #ifdef CONFIG_COMPACTION
+
+int PageMovable(struct page *page)
+{
+	struct address_space *mapping;
+
+	VM_BUG_ON_PAGE(!PageLocked(page), page);
+	if (!__PageMovable(page))
+		return 0;
+
+	mapping = page_mapping(page);
+	if (mapping && mapping->a_ops && mapping->a_ops->isolate_page)
+		return 1;
+
+	return 0;
+}
+EXPORT_SYMBOL(PageMovable);
+
+void __SetPageMovable(struct page *page, struct address_space *mapping)
+{
+	VM_BUG_ON_PAGE(!PageLocked(page), page);
+	VM_BUG_ON_PAGE((unsigned long)mapping & PAGE_MAPPING_MOVABLE, page);
+	page->mapping = (void *)((unsigned long)mapping | PAGE_MAPPING_MOVABLE);
+}
+EXPORT_SYMBOL(__SetPageMovable);
+
+void __ClearPageMovable(struct page *page)
+{
+	VM_BUG_ON_PAGE(!PageLocked(page), page);
+	VM_BUG_ON_PAGE(!PageMovable(page), page);
+	/*
+	 * Clear registered address_space val with keeping PAGE_MAPPING_MOVABLE
+	 * flag so that VM can catch up released page by driver after isolation.
+	 * With it, VM migration doesn't try to put it back.
+	 */
+	page->mapping = (void *)((unsigned long)page->mapping &
+				PAGE_MAPPING_MOVABLE);
+}
+EXPORT_SYMBOL(__ClearPageMovable);
 
 /* Do not skip compaction more than 64 times */
 #define COMPACT_MAX_DEFER_SHIFT 6
@@ -733,21 +773,6 @@ isolate_migratepages_block(struct compact_control *cc, unsigned long low_pfn,
 		}
 
 		/*
-		 * Check may be lockless but that's ok as we recheck later.
-		 * It's possible to migrate LRU pages and balloon pages
-		 * Skip any other type of page
-		 */
-		is_lru = PageLRU(page);
-		if (!is_lru) {
-			if (unlikely(balloon_page_movable(page))) {
-				if (balloon_page_isolate(page)) {
-					/* Successfully isolated */
-					goto isolate_success;
-				}
-			}
-		}
-
-		/*
 		 * Regardless of being on LRU, compound pages such as THP and
 		 * hugetlbfs are not to be compacted. We can potentially save
 		 * a lot of iterations if we skip them at once. The check is
@@ -763,8 +788,32 @@ isolate_migratepages_block(struct compact_control *cc, unsigned long low_pfn,
 			continue;
 		}
 
-		if (!is_lru)
+		/*
+		 * Check may be lockless but that's ok as we recheck later.
+		 * It's possible to migrate LRU and non-lru movable pages.
+		 * Skip any other type of page
+		 */
+		is_lru = PageLRU(page);
+		if (!is_lru) {
+#ifdef CONFIG_ZSWAP_MIGRATION_SUPPORT
+			/*
+			 * __PageMovable can return false positive so we need
+			 * to verify it under page_lock.
+			 */
+			if (unlikely(__PageMovable(page)) &&
+					!PageIsolated(page)) {
+				if (locked) {
+					spin_unlock_irqrestore(&zone->lru_lock,
+									flags);
+					locked = false;
+				}
+
+				if (isolate_movable_page(page, isolate_mode))
+					goto isolate_success;
+			}
+#endif
 			continue;
+		}
 
 		/*
 		 * Migration will fail if an anonymous page is pinned in memory,
@@ -808,7 +857,9 @@ isolate_migratepages_block(struct compact_control *cc, unsigned long low_pfn,
 		/* Successfully isolated */
 		del_page_from_lru_list(page, lruvec, page_lru(page));
 
+#ifdef CONFIG_ZSWAP_MIGRATION_SUPPORT
 isolate_success:
+#endif
 		list_add(&page->lru, migratelist);
 		cc->nr_migratepages++;
 		nr_isolated++;
@@ -906,7 +957,7 @@ static bool suitable_migration_target(struct page *page)
 			return false;
 	}
 
-	/* If the block is MIGRATE_MOVABLE or MIGRATE_CMA, allow migration */
+	/* If the block is MIGRATE_MOVABLE, allow migration */
 	if (migrate_async_suitable(get_pageblock_migratetype(page)))
 		return true;
 
@@ -1198,11 +1249,11 @@ static int __compact_finished(struct zone *zone, struct compact_control *cc,
 
 		/*
 		 * Mark that the PG_migrate_skip information should be cleared
-		 * by kswapd when it goes to sleep. kswapd does not set the
+		 * by kswapd when it goes to sleep. kcompactd does not set the
 		 * flag itself as the decision to be clear should be directly
 		 * based on an allocation request.
 		 */
-		if (!current_is_kswapd())
+		if (cc->direct_compaction)
 			zone->compact_blockskip_flush = true;
 
 		return COMPACT_COMPLETE;
@@ -1227,12 +1278,6 @@ static int __compact_finished(struct zone *zone, struct compact_control *cc,
 		if (!list_empty(&area->free_list[migratetype]))
 			return COMPACT_PARTIAL;
 
-#ifdef CONFIG_CMA
-		/* MIGRATE_MOVABLE can fallback on MIGRATE_CMA */
-		if (migratetype == MIGRATE_MOVABLE &&
-			!list_empty(&area->free_list[MIGRATE_CMA]))
-			return COMPACT_PARTIAL;
-#endif
 		/*
 		 * Job done if allocation would steal freepages from
 		 * other migratetype buddy lists.
@@ -1345,10 +1390,9 @@ static int compact_zone(struct zone *zone, struct compact_control *cc)
 
 	/*
 	 * Clear pageblock skip if there were failures recently and compaction
-	 * is about to be retried after being deferred. kswapd does not do
-	 * this reset as it'll reset the cached information when going to sleep.
+	 * is about to be retried after being deferred.
 	 */
-	if (compaction_restarting(zone, cc->order) && !current_is_kswapd())
+	if (compaction_restarting(zone, cc->order))
 		__reset_isolation_suitable(zone);
 
 	/*
@@ -1484,6 +1528,7 @@ static unsigned long compact_zone_order(struct zone *zone, int order,
 		.mode = mode,
 		.alloc_flags = alloc_flags,
 		.classzone_idx = classzone_idx,
+		.direct_compaction = true,
 	};
 	INIT_LIST_HEAD(&cc.freepages);
 	INIT_LIST_HEAD(&cc.migratepages);
@@ -1673,7 +1718,7 @@ static void compact_node(int nid)
 {
 	struct compact_control cc = {
 		.order = -1,
-		.mode = MIGRATE_SYNC,
+		.mode = MIGRATE_SYNC_LIGHT,
 		.ignore_skip_hint = true,
 	};
 
@@ -1699,8 +1744,16 @@ int sysctl_compact_memory;
 int sysctl_compaction_handler(struct ctl_table *table, int write,
 			void __user *buffer, size_t *length, loff_t *ppos)
 {
-	if (write)
+	if (write) {
+		pr_info("compact_memory start.(%d times so far)\n",
+			sysctl_compact_memory);
+		sysctl_compact_memory++;
 		compact_nodes();
+		pr_info("compact_memory done.(%d times so far)\n",
+			sysctl_compact_memory);
+	}
+	else
+		proc_dointvec(table, write, buffer, length, ppos);
 
 	return 0;
 }
@@ -1741,5 +1794,224 @@ void compaction_unregister_node(struct node *node)
 	return device_remove_file(&node->dev, &dev_attr_compact);
 }
 #endif /* CONFIG_SYSFS && CONFIG_NUMA */
+
+static inline bool kcompactd_work_requested(pg_data_t *pgdat)
+{
+	return pgdat->kcompactd_max_order > 0;
+}
+
+static bool kcompactd_node_suitable(pg_data_t *pgdat)
+{
+	int zoneid;
+	struct zone *zone;
+	enum zone_type classzone_idx = pgdat->kcompactd_classzone_idx;
+
+	for (zoneid = 0; zoneid <= classzone_idx; zoneid++) {
+		zone = &pgdat->node_zones[zoneid];
+
+		if (!populated_zone(zone))
+			continue;
+
+		if (compaction_suitable(zone, pgdat->kcompactd_max_order, 0,
+					classzone_idx) == COMPACT_CONTINUE)
+			return true;
+	}
+
+	return false;
+}
+
+static void kcompactd_do_work(pg_data_t *pgdat)
+{
+	/*
+	 * With no special task, compact all zones so that a page of requested
+	 * order is allocatable.
+	 */
+	int zoneid;
+	struct zone *zone;
+	struct compact_control cc = {
+		.order = pgdat->kcompactd_max_order,
+		.classzone_idx = pgdat->kcompactd_classzone_idx,
+		.mode = MIGRATE_SYNC_LIGHT,
+		.ignore_skip_hint = true,
+
+	};
+	bool success = false;
+
+	trace_mm_compaction_kcompactd_wake(pgdat->node_id, cc.order,
+							cc.classzone_idx);
+	count_vm_event(KCOMPACTD_WAKE);
+
+	for (zoneid = 0; zoneid <= cc.classzone_idx; zoneid++) {
+		int status;
+
+		zone = &pgdat->node_zones[zoneid];
+		if (!populated_zone(zone))
+			continue;
+
+		if (compaction_deferred(zone, cc.order))
+			continue;
+
+		if (compaction_suitable(zone, cc.order, 0, zoneid) !=
+							COMPACT_CONTINUE)
+			continue;
+
+		cc.nr_freepages = 0;
+		cc.nr_migratepages = 0;
+		cc.zone = zone;
+		INIT_LIST_HEAD(&cc.freepages);
+		INIT_LIST_HEAD(&cc.migratepages);
+
+		status = compact_zone(zone, &cc);
+
+		if (zone_watermark_ok(zone, cc.order, low_wmark_pages(zone),
+						cc.classzone_idx, 0)) {
+			success = true;
+			compaction_defer_reset(zone, cc.order, false);
+		} else if (status == COMPACT_COMPLETE) {
+			/*
+			 * We use sync migration mode here, so we defer like
+			 * sync direct compaction does.
+			 */
+			defer_compaction(zone, cc.order);
+		}
+
+		VM_BUG_ON(!list_empty(&cc.freepages));
+		VM_BUG_ON(!list_empty(&cc.migratepages));
+	}
+
+	/*
+	 * Regardless of success, we are done until woken up next. But remember
+	 * the requested order/classzone_idx in case it was higher/tighter than
+	 * our current ones
+	 */
+	if (pgdat->kcompactd_max_order <= cc.order)
+		pgdat->kcompactd_max_order = 0;
+	if (pgdat->kcompactd_classzone_idx >= cc.classzone_idx)
+		pgdat->kcompactd_classzone_idx = pgdat->nr_zones - 1;
+}
+
+void wakeup_kcompactd(pg_data_t *pgdat, int order, int classzone_idx)
+{
+	if (!order)
+		return;
+
+	if (pgdat->kcompactd_max_order < order)
+		pgdat->kcompactd_max_order = order;
+
+	if (pgdat->kcompactd_classzone_idx > classzone_idx)
+		pgdat->kcompactd_classzone_idx = classzone_idx;
+
+	if (!waitqueue_active(&pgdat->kcompactd_wait))
+		return;
+
+	if (!kcompactd_node_suitable(pgdat))
+		return;
+
+	trace_mm_compaction_wakeup_kcompactd(pgdat->node_id, order,
+							classzone_idx);
+	wake_up_interruptible(&pgdat->kcompactd_wait);
+}
+
+/*
+ * The background compaction daemon, started as a kernel thread
+ * from the init process.
+ */
+static int kcompactd(void *p)
+{
+	pg_data_t *pgdat = (pg_data_t*)p;
+	struct task_struct *tsk = current;
+
+	const struct cpumask *cpumask = cpumask_of_node(pgdat->node_id);
+
+	if (!cpumask_empty(cpumask))
+		set_cpus_allowed_ptr(tsk, cpumask);
+
+	set_freezable();
+
+	pgdat->kcompactd_max_order = 0;
+	pgdat->kcompactd_classzone_idx = pgdat->nr_zones - 1;
+
+	while (!kthread_should_stop()) {
+		trace_mm_compaction_kcompactd_sleep(pgdat->node_id);
+		wait_event_freezable(pgdat->kcompactd_wait,
+				kcompactd_work_requested(pgdat));
+
+		kcompactd_do_work(pgdat);
+	}
+
+	return 0;
+}
+
+/*
+ * This kcompactd start function will be called by init and node-hot-add.
+ * On node-hot-add, kcompactd will moved to proper cpus if cpus are hot-added.
+ */
+int kcompactd_run(int nid)
+{
+	pg_data_t *pgdat = NODE_DATA(nid);
+	int ret = 0;
+
+	if (pgdat->kcompactd)
+		return 0;
+
+	pgdat->kcompactd = kthread_run(kcompactd, pgdat, "kcompactd%d", nid);
+	if (IS_ERR(pgdat->kcompactd)) {
+		pr_err("Failed to start kcompactd on node %d\n", nid);
+		ret = PTR_ERR(pgdat->kcompactd);
+		pgdat->kcompactd = NULL;
+	}
+	return ret;
+}
+
+/*
+ * Called by memory hotplug when all memory in a node is offlined. Caller must
+ * hold mem_hotplug_begin/end().
+ */
+void kcompactd_stop(int nid)
+{
+	struct task_struct *kcompactd = NODE_DATA(nid)->kcompactd;
+
+	if (kcompactd) {
+		kthread_stop(kcompactd);
+		NODE_DATA(nid)->kcompactd = NULL;
+	}
+}
+
+/*
+ * It's optimal to keep kcompactd on the same CPUs as their memory, but
+ * not required for correctness. So if the last cpu in a node goes
+ * away, we get changed to run anywhere: as the first one comes back,
+ * restore their cpu bindings.
+ */
+static int cpu_callback(struct notifier_block *nfb, unsigned long action,
+			void *hcpu)
+{
+	int nid;
+
+	if (action == CPU_ONLINE || action == CPU_ONLINE_FROZEN) {
+		for_each_node_state(nid, N_MEMORY) {
+			pg_data_t *pgdat = NODE_DATA(nid);
+			const struct cpumask *mask;
+
+			mask = cpumask_of_node(pgdat->node_id);
+
+			if (cpumask_any_and(cpu_online_mask, mask) < nr_cpu_ids)
+				/* One of our CPUs online: restore mask */
+				set_cpus_allowed_ptr(pgdat->kcompactd, mask);
+		}
+	}
+	return NOTIFY_OK;
+}
+
+static int __init kcompactd_init(void)
+{
+	int nid;
+
+	for_each_node_state(nid, N_MEMORY)
+		kcompactd_run(nid);
+	hotcpu_notifier(cpu_callback, 0);
+	return 0;
+}
+subsys_initcall(kcompactd_init)
 
 #endif /* CONFIG_COMPACTION */

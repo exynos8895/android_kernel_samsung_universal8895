@@ -19,6 +19,7 @@
 #include <linux/of.h>
 #include <linux/smp.h>
 #include <linux/delay.h>
+#include <linux/mm.h>
 #include <linux/psci.h>
 #include <linux/slab.h>
 
@@ -29,6 +30,10 @@
 #include <asm/errno.h>
 #include <asm/smp_plat.h>
 #include <asm/suspend.h>
+
+#if defined(CONFIG_SEC_MMIOTRACE) || defined(CONFIG_SEC_KWATCHER)
+#include <asm/debug-monitors.h>
+#endif
 
 static DEFINE_PER_CPU_READ_MOSTLY(u32 *, psci_power_state);
 
@@ -113,11 +118,22 @@ static int __init cpu_psci_cpu_prepare(unsigned int cpu)
 
 static int cpu_psci_cpu_boot(unsigned int cpu)
 {
-	int err = psci_ops.cpu_on(cpu_logical_map(cpu), __pa(secondary_entry));
+	int err = psci_ops.cpu_on(cpu_logical_map(cpu),
+				  __pa_symbol(secondary_entry));
 	if (err)
 		pr_err("failed to boot CPU%d (%d)\n", cpu, err);
 
 	return err;
+}
+
+static void cpu_psci_cpu_postboot(void)
+{
+#ifdef CONFIG_SEC_KWATCHER
+	restore_debug_monitors();
+#endif
+#ifdef CONFIG_SEC_MMIOTRACE
+	check_and_clear_os_lock();
+#endif
 }
 
 #ifdef CONFIG_HOTPLUG_CPU
@@ -186,6 +202,58 @@ static int psci_suspend_finisher(unsigned long index)
 				    virt_to_phys(cpu_resume));
 }
 
+/**
+ * Pack PSCI power state to integer
+ *
+ * @id : indicates system power mode. 0 means non system power mode.
+ * @type : not used.
+ * @affinity_level : indicates power down scope.
+ */
+static u32 psci_power_state_pack(u32 id, u32 type, u32 affinity_level)
+{
+	return ((id << PSCI_0_2_POWER_STATE_ID_SHIFT)
+			& PSCI_0_2_POWER_STATE_ID_MASK) |
+		((type << PSCI_0_2_POWER_STATE_TYPE_SHIFT)
+		 & PSCI_0_2_POWER_STATE_TYPE_MASK) |
+		((affinity_level << PSCI_0_2_POWER_STATE_AFFL_SHIFT)
+		 & PSCI_0_2_POWER_STATE_AFFL_MASK);
+}
+
+/**
+ * We hope that PSCI framework cover the all platform specific power
+ * states, unfortunately PSCI can support only state managed by cpuidle.
+ * psci_suspend_customized_finisher supports extra power state which
+ * cpuidle does not handle. This function is only for Exynos.
+ */
+static int psci_suspend_customized_finisher(unsigned long index)
+{
+	u32 state;
+
+	switch (index) {
+	case PSCI_CLUSTER_SLEEP:
+		state = psci_power_state_pack(0, 0, 1);
+		break;
+	case PSCI_SYSTEM_IDLE:
+	case PSCI_SYSTEM_IDLE_AUDIO:
+		state = psci_power_state_pack(1, 0, 0);
+		break;
+	case PSCI_SYSTEM_IDLE_CLUSTER_SLEEP:
+		state = psci_power_state_pack(1, 0, 1);
+		break;
+	case PSCI_CP_CALL:
+		state = psci_power_state_pack(0, 0, 2);
+		break;
+	case PSCI_SYSTEM_SLEEP:
+		state = psci_power_state_pack(0, 0, 3);
+		break;
+	default:
+		panic("Unsupported psci state, index = %ld\n", index);
+		break;
+	};
+
+	return psci_ops.cpu_suspend(state, virt_to_phys(cpu_resume));
+}
+
 static int __maybe_unused cpu_psci_cpu_suspend(unsigned long index)
 {
 	int ret;
@@ -196,6 +264,9 @@ static int __maybe_unused cpu_psci_cpu_suspend(unsigned long index)
 	 */
 	if (WARN_ON_ONCE(!index))
 		return -EINVAL;
+
+	if (unlikely(index >= PSCI_UNUSED_INDEX))
+		return cpu_suspend(index, psci_suspend_customized_finisher);
 
 	if (!psci_power_state_loses_context(state[index - 1]))
 		ret = psci_ops.cpu_suspend(state[index - 1], 0);
@@ -214,6 +285,7 @@ const struct cpu_operations cpu_psci_ops = {
 	.cpu_init	= cpu_psci_cpu_init,
 	.cpu_prepare	= cpu_psci_cpu_prepare,
 	.cpu_boot	= cpu_psci_cpu_boot,
+	.cpu_postboot	= cpu_psci_cpu_postboot,
 #ifdef CONFIG_HOTPLUG_CPU
 	.cpu_disable	= cpu_psci_cpu_disable,
 	.cpu_die	= cpu_psci_cpu_die,

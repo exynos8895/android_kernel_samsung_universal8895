@@ -11,4 +11,9 @@
 #define TXDONE_BY_POLL	BIT(1) /* controller can read status of last TX */
 #define TXDONE_BY_ACK	BIT(2) /* S/W ACK recevied by Client ticks the TX */
 
+enum mbox_result {
+	MBOX_OK = 0,
+	MBOX_ERR,
+};
+
 #endif /* __MAILBOX_H */

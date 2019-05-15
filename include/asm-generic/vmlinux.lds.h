@@ -249,6 +249,14 @@
 	*(.data..init_task)
 
 /*
+ * Allow architectures to handle ro_after_init data on their
+ * own by defining an empty RO_AFTER_INIT_DATA.
+ */
+#ifndef RO_AFTER_INIT_DATA
+#define RO_AFTER_INIT_DATA *(.data..ro_after_init)
+#endif
+
+/*
  * Read only Data
  */
 #define RO_DATA_SECTION(align)						\
@@ -256,6 +264,7 @@
 	.rodata           : AT(ADDR(.rodata) - LOAD_OFFSET) {		\
 		VMLINUX_SYMBOL(__start_rodata) = .;			\
 		*(.rodata) *(.rodata.*)					\
+		*(.data.rel.ro.local* .gnu.linkonce.d.rel.ro.local.*) *(.data.rel.ro .data.rel.ro.* .gnu.linkonce.d.rel.ro.*) \
 		*(__vermagic)		/* Kernel version magic */	\
 		. = ALIGN(8);						\
 		VMLINUX_SYMBOL(__start___tracepoints_ptrs) = .;		\
@@ -266,6 +275,7 @@
 									\
 	.rodata1          : AT(ADDR(.rodata1) - LOAD_OFFSET) {		\
 		*(.rodata1)						\
+		RO_AFTER_INIT_DATA	/* Read only after init */	\
 	}								\
 									\
 	BUG_TABLE							\
@@ -456,15 +466,17 @@
 		*(.entry.text)						\
 		VMLINUX_SYMBOL(__entry_text_end) = .;
 
-#ifdef CONFIG_FUNCTION_GRAPH_TRACER
 #define IRQENTRY_TEXT							\
 		ALIGN_FUNCTION();					\
 		VMLINUX_SYMBOL(__irqentry_text_start) = .;		\
 		*(.irqentry.text)					\
 		VMLINUX_SYMBOL(__irqentry_text_end) = .;
-#else
-#define IRQENTRY_TEXT
-#endif
+
+#define SOFTIRQENTRY_TEXT						\
+		ALIGN_FUNCTION();					\
+		VMLINUX_SYMBOL(__softirqentry_text_start) = .;		\
+		*(.softirqentry.text)					\
+		VMLINUX_SYMBOL(__softirqentry_text_end) = .;
 
 /* Section used for early init (in .S files) */
 #define HEAD_TEXT  *(.head.text)
@@ -660,6 +672,30 @@
 		*(.initcall##level##.init)				\
 		*(.initcall##level##s.init)				\
 
+#ifdef CONFIG_DEFERRED_INITCALLS
+#define DEFERRED_INITCALLS(level)						\
+		VMLINUX_SYMBOL(__deferred_initcall_start) = .;		\
+		*(.deferred_initcall##level##.init)				\
+		*(.deferred_initcall##level##s.init)				\
+		VMLINUX_SYMBOL(__deferred_initcall_end) = .;
+#endif
+
+#ifdef CONFIG_DEFERRED_INITCALLS
+#define INIT_CALLS							\
+		VMLINUX_SYMBOL(__initcall_start) = .;			\
+		*(.initcallearly.init)					\
+		INIT_CALLS_LEVEL(0)					\
+		INIT_CALLS_LEVEL(1)					\
+		INIT_CALLS_LEVEL(2)					\
+		INIT_CALLS_LEVEL(3)					\
+		INIT_CALLS_LEVEL(4)					\
+		INIT_CALLS_LEVEL(5)					\
+		INIT_CALLS_LEVEL(rootfs)				\
+		INIT_CALLS_LEVEL(6)					\
+		INIT_CALLS_LEVEL(7)					\
+		VMLINUX_SYMBOL(__initcall_end) = .;	\
+		DEFERRED_INITCALLS(0)
+#else
 #define INIT_CALLS							\
 		VMLINUX_SYMBOL(__initcall_start) = .;			\
 		*(.initcallearly.init)					\
@@ -673,6 +709,7 @@
 		INIT_CALLS_LEVEL(6)					\
 		INIT_CALLS_LEVEL(7)					\
 		VMLINUX_SYMBOL(__initcall_end) = .;
+#endif
 
 #define CON_INITCALL							\
 		VMLINUX_SYMBOL(__con_initcall_start) = .;		\

@@ -17,15 +17,16 @@
 #include <linux/device.h>
 #include <linux/err.h>
 #include <linux/errno.h>
-#include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/io.h>
+#include <linux/kernel.h>
 #include <linux/list.h>
 #include <linux/memblock.h>
+#include <linux/pstore_ram.h>
 #include <linux/rslib.h>
 #include <linux/slab.h>
+#include <linux/uaccess.h>
 #include <linux/vmalloc.h>
-#include <linux/pstore_ram.h>
 #include <asm/page.h>
 
 struct persistent_ram_buffer {
@@ -173,10 +174,10 @@ static void persistent_ram_ecc_old(struct persistent_ram_zone *prz)
 			size = buffer->data + prz->buffer_size - block;
 		numerr = persistent_ram_decode_rs8(prz, block, size, par);
 		if (numerr > 0) {
-			pr_devel("error in block %p, %d\n", block, numerr);
+			pr_info("error in block %p, %d\n", block, numerr);
 			prz->corrected_bytes += numerr;
 		} else if (numerr < 0) {
-			pr_devel("uncorrectable error in block %p\n", block);
+			pr_info("uncorrectable error in block %p\n", block);
 			prz->bad_blocks++;
 		}
 		block += prz->ecc_info.block_size;
@@ -269,6 +270,19 @@ static void notrace persistent_ram_update(struct persistent_ram_zone *prz,
 	persistent_ram_update_ecc(prz, start, count);
 }
 
+static int notrace persistent_ram_update_user(struct persistent_ram_zone *prz,
+	const void __user *s, unsigned int start, unsigned int count)
+{
+	struct persistent_ram_buffer *buffer = prz->buffer;
+	int ret = unlikely(__copy_from_user(buffer->data + start, s, count)) ?
+		-EFAULT : 0;
+#ifdef CONFIG_EXYNOS_SNAPSHOT_HOOK_LOGGER
+        exynos_ss_hook_pmsg(buffer->data + start, count);
+#endif
+	persistent_ram_update_ecc(prz, start, count);
+	return ret;
+}
+
 void persistent_ram_save_old(struct persistent_ram_zone *prz)
 {
 	struct persistent_ram_buffer *buffer = prz->buffer;
@@ -322,6 +336,38 @@ int notrace persistent_ram_write(struct persistent_ram_zone *prz,
 	return count;
 }
 
+int notrace persistent_ram_write_user(struct persistent_ram_zone *prz,
+	const void __user *s, unsigned int count)
+{
+	int rem, ret = 0, c = count;
+	size_t start;
+
+	if (unlikely(!access_ok(VERIFY_READ, s, count)))
+		return -EFAULT;
+	if (unlikely(c > prz->buffer_size)) {
+		s += c - prz->buffer_size;
+		c = prz->buffer_size;
+	}
+
+	buffer_size_add(prz, c);
+
+	start = buffer_start_add(prz, c);
+
+	rem = prz->buffer_size - start;
+	if (unlikely(rem < c)) {
+		ret = persistent_ram_update_user(prz, s, start, rem);
+		s += rem;
+		c -= rem;
+		start = 0;
+	}
+	if (likely(!ret))
+		ret = persistent_ram_update_user(prz, s, start, c);
+
+	persistent_ram_update_header_ecc(prz);
+
+	return unlikely(ret) ? ret : count;
+}
+
 size_t persistent_ram_old_size(struct persistent_ram_zone *prz)
 {
 	return prz->old_log_size;
@@ -359,11 +405,19 @@ static void *persistent_ram_vmap(phys_addr_t start, size_t size,
 	page_start = start - offset_in_page(start);
 	page_count = DIV_ROUND_UP(size + offset_in_page(start), PAGE_SIZE);
 
+#ifndef CONFIG_EXYNOS_SNAPSHOT_PSTORE
 	if (memtype)
 		prot = pgprot_noncached(PAGE_KERNEL);
 	else
 		prot = pgprot_writecombine(PAGE_KERNEL);
-
+#else
+	/*
+	 * If using exynos-snapshot, we can get the debug information
+	 * from tracing data of exynos-snapshot. So we don't need noncacheable
+	 * region that could cause performace problems.
+	 */
+	prot = PAGE_KERNEL;
+#endif
 	pages = kmalloc_array(page_count, sizeof(struct page *), GFP_KERNEL);
 	if (!pages) {
 		pr_err("%s: Failed to allocate array for %u pages\n",
@@ -440,13 +494,13 @@ static int persistent_ram_post_init(struct persistent_ram_zone *prz, u32 sig,
 			pr_info("found existing invalid buffer, size %zu, start %zu\n",
 				buffer_size(prz), buffer_start(prz));
 		else {
-			pr_debug("found existing buffer, size %zu, start %zu\n",
+			pr_info("found existing buffer, size %zu, start %zu\n",
 				 buffer_size(prz), buffer_start(prz));
 			persistent_ram_save_old(prz);
 			return 0;
 		}
 	} else {
-		pr_debug("no valid data in buffer (sig = 0x%08x)\n",
+		pr_info("no valid data in buffer (sig = 0x%08x)\n",
 			 prz->buffer->sig);
 	}
 

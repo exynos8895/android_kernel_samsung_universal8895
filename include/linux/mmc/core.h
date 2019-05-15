@@ -136,6 +136,10 @@ struct mmc_request {
 	struct completion	completion;
 	void			(*done)(struct mmc_request *);/* completion function */
 	struct mmc_host		*host;
+	ktime_t			io_start;
+#ifdef CONFIG_BLOCK
+	int			lat_hist_enabled;
+#endif
 };
 
 struct mmc_card;
@@ -188,6 +192,7 @@ extern unsigned int mmc_align_data_size(struct mmc_card *, unsigned int);
 
 extern int __mmc_claim_host(struct mmc_host *host, atomic_t *abort);
 extern void mmc_release_host(struct mmc_host *host);
+extern int mmc_try_claim_host(struct mmc_host *host, unsigned int delay);
 
 extern void mmc_get_card(struct mmc_card *card);
 extern void mmc_put_card(struct mmc_card *card);

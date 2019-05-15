@@ -15,6 +15,7 @@
 bool of_usb_host_tpl_support(struct device_node *np);
 int of_usb_update_otg_caps(struct device_node *np,
 			struct usb_otg_caps *otg_caps);
+unsigned int of_usb_get_suspend_clk_freq(struct device *dev);
 #else
 static inline bool of_usb_host_tpl_support(struct device_node *np)
 {
@@ -22,6 +23,10 @@ static inline bool of_usb_host_tpl_support(struct device_node *np)
 }
 static inline int of_usb_update_otg_caps(struct device_node *np,
 				struct usb_otg_caps *otg_caps)
+{
+	return 0;
+}
+static inline unsigned int of_usb_get_suspend_clk_freq(struct device *dev)
 {
 	return 0;
 }

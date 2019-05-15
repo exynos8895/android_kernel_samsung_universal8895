@@ -853,7 +853,8 @@ static ssize_t mem_rw(struct file *file, char __user *buf,
 	ssize_t copied;
 	char *page;
 
-	if (!mm)
+	/* Ensure the process spawned far enough to have an environment. */
+	if (!mm || !mm->env_end)
 		return 0;
 
 	page = (char *)__get_free_page(GFP_TEMPORARY);
@@ -2240,6 +2241,92 @@ static const struct file_operations proc_timers_operations = {
 	.release	= seq_release_private,
 };
 
+static ssize_t timerslack_ns_write(struct file *file, const char __user *buf,
+					size_t count, loff_t *offset)
+{
+	struct inode *inode = file_inode(file);
+	struct task_struct *p;
+	u64 slack_ns;
+	int err;
+
+	err = kstrtoull_from_user(buf, count, 10, &slack_ns);
+	if (err < 0)
+		return err;
+
+	p = get_proc_task(inode);
+	if (!p)
+		return -ESRCH;
+
+	if (p != current) {
+		if (!capable(CAP_SYS_NICE)) {
+			count = -EPERM;
+			goto out;
+		}
+
+		err = security_task_setscheduler(p);
+		if (err) {
+			count = err;
+			goto out;
+		}
+	}
+
+	task_lock(p);
+	if (slack_ns == 0)
+		p->timer_slack_ns = p->default_timer_slack_ns;
+	else
+		p->timer_slack_ns = slack_ns;
+	task_unlock(p);
+
+out:
+	put_task_struct(p);
+
+	return count;
+}
+
+static int timerslack_ns_show(struct seq_file *m, void *v)
+{
+	struct inode *inode = m->private;
+	struct task_struct *p;
+	int err = 0;
+
+	p = get_proc_task(inode);
+	if (!p)
+		return -ESRCH;
+
+	if (p != current) {
+
+		if (!capable(CAP_SYS_NICE)) {
+			err = -EPERM;
+			goto out;
+		}
+		err = security_task_getscheduler(p);
+		if (err)
+			goto out;
+	}
+
+	task_lock(p);
+	seq_printf(m, "%lu\n", p->timer_slack_ns);
+	task_unlock(p);
+
+out:
+	put_task_struct(p);
+
+	return err;
+}
+
+static int timerslack_ns_open(struct inode *inode, struct file *filp)
+{
+	return single_open(filp, timerslack_ns_show, inode);
+}
+
+static const struct file_operations proc_pid_set_timerslack_ns_operations = {
+	.open		= timerslack_ns_open,
+	.read		= seq_read,
+	.write		= timerslack_ns_write,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
 static int proc_pident_instantiate(struct inode *dir,
 	struct dentry *dentry, struct task_struct *task, const void *ptr)
 {
@@ -2752,6 +2839,7 @@ static const struct pid_entry tgid_base_stuff[] = {
 	REG("cmdline",    S_IRUGO, proc_pid_cmdline_ops),
 	ONE("stat",       S_IRUGO, proc_tgid_stat),
 	ONE("statm",      S_IRUGO, proc_pid_statm),
+	ONE("statlmkd",      S_IRUGO, proc_pid_statlmkd),
 	REG("maps",       S_IRUGO, proc_pid_maps_operations),
 #ifdef CONFIG_NUMA
 	REG("numa_maps",  S_IRUGO, proc_pid_numa_maps_operations),
@@ -2766,6 +2854,7 @@ static const struct pid_entry tgid_base_stuff[] = {
 #ifdef CONFIG_PROC_PAGE_MONITOR
 	REG("clear_refs", S_IWUSR, proc_clear_refs_operations),
 	REG("smaps",      S_IRUGO, proc_pid_smaps_operations),
+	REG("smaps_simple", S_IRUGO, proc_pid_smaps_simple_operations),
 	REG("pagemap",    S_IRUSR, proc_pagemap_operations),
 #endif
 #ifdef CONFIG_SECURITY
@@ -2790,8 +2879,8 @@ static const struct pid_entry tgid_base_stuff[] = {
 	ONE("cgroup",  S_IRUGO, proc_cgroup_show),
 #endif
 	ONE("oom_score",  S_IRUGO, proc_oom_score),
-	REG("oom_adj",    S_IRUGO|S_IWUSR, proc_oom_adj_operations),
-	REG("oom_score_adj", S_IRUGO|S_IWUSR, proc_oom_score_adj_operations),
+	REG("oom_adj",    S_IRUSR, proc_oom_adj_operations),
+	REG("oom_score_adj", S_IRUSR, proc_oom_score_adj_operations),
 #ifdef CONFIG_AUDITSYSCALL
 	REG("loginuid",   S_IWUSR|S_IRUGO, proc_loginuid_operations),
 	REG("sessionid",  S_IRUGO, proc_sessionid_operations),
@@ -2817,6 +2906,7 @@ static const struct pid_entry tgid_base_stuff[] = {
 #ifdef CONFIG_CHECKPOINT_RESTORE
 	REG("timers",	  S_IRUGO, proc_timers_operations),
 #endif
+	REG("timerslack_ns", S_IRUGO|S_IWUGO, proc_pid_set_timerslack_ns_operations),
 };
 
 static int proc_tgid_base_readdir(struct file *file, struct dir_context *ctx)
@@ -3076,6 +3166,44 @@ int proc_pid_readdir(struct file *file, struct dir_context *ctx)
 }
 
 /*
+ * proc_tid_comm_permission is a special permission function exclusively
+ * used for the node /proc/<pid>/task/<tid>/comm.
+ * It bypasses generic permission checks in the case where a task of the same
+ * task group attempts to access the node.
+ * The rational behind this is that glibc and bionic access this node for
+ * cross thread naming (pthread_set/getname_np(!self)). However, if
+ * PR_SET_DUMPABLE gets set to 0 this node among others becomes uid=0 gid=0,
+ * which locks out the cross thread naming implementation.
+ * This function makes sure that the node is always accessible for members of
+ * same thread group.
+ */
+static int proc_tid_comm_permission(struct inode *inode, int mask)
+{
+	bool is_same_tgroup;
+	struct task_struct *task;
+
+	task = get_proc_task(inode);
+	if (!task)
+		return -ESRCH;
+	is_same_tgroup = same_thread_group(current, task);
+	put_task_struct(task);
+
+	if (likely(is_same_tgroup && !(mask & MAY_EXEC))) {
+		/* This file (/proc/<pid>/task/<tid>/comm) can always be
+		 * read or written by the members of the corresponding
+		 * thread group.
+		 */
+		return 0;
+	}
+
+	return generic_permission(inode, mask);
+}
+
+static const struct inode_operations proc_tid_comm_inode_operations = {
+		.permission = proc_tid_comm_permission,
+};
+
+/*
  * Tasks
  */
 static const struct pid_entry tid_base_stuff[] = {
@@ -3093,13 +3221,16 @@ static const struct pid_entry tid_base_stuff[] = {
 #ifdef CONFIG_SCHED_DEBUG
 	REG("sched",     S_IRUGO|S_IWUSR, proc_pid_sched_operations),
 #endif
-	REG("comm",      S_IRUGO|S_IWUSR, proc_pid_set_comm_operations),
+	NOD("comm",      S_IFREG|S_IRUGO|S_IWUSR,
+			 &proc_tid_comm_inode_operations,
+			 &proc_pid_set_comm_operations, {}),
 #ifdef CONFIG_HAVE_ARCH_TRACEHOOK
 	ONE("syscall",   S_IRUSR, proc_pid_syscall),
 #endif
 	REG("cmdline",   S_IRUGO, proc_pid_cmdline_ops),
 	ONE("stat",      S_IRUGO, proc_tid_stat),
 	ONE("statm",     S_IRUGO, proc_pid_statm),
+	ONE("statlmkd",      S_IRUGO, proc_pid_statlmkd),
 	REG("maps",      S_IRUGO, proc_tid_maps_operations),
 #ifdef CONFIG_PROC_CHILDREN
 	REG("children",  S_IRUGO, proc_tid_children_operations),
@@ -3140,8 +3271,8 @@ static const struct pid_entry tid_base_stuff[] = {
 	ONE("cgroup",  S_IRUGO, proc_cgroup_show),
 #endif
 	ONE("oom_score", S_IRUGO, proc_oom_score),
-	REG("oom_adj",   S_IRUGO|S_IWUSR, proc_oom_adj_operations),
-	REG("oom_score_adj", S_IRUGO|S_IWUSR, proc_oom_score_adj_operations),
+	REG("oom_adj",   S_IRUSR, proc_oom_adj_operations),
+	REG("oom_score_adj", S_IRUSR, proc_oom_score_adj_operations),
 #ifdef CONFIG_AUDITSYSCALL
 	REG("loginuid",  S_IWUSR|S_IRUGO, proc_loginuid_operations),
 	REG("sessionid",  S_IRUGO, proc_sessionid_operations),
