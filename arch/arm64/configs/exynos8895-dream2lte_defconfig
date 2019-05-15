@@ -5069,8 +5069,9 @@ CONFIG_NLS_UTF8=y
 # CONFIG_VIRTUALIZATION is not set
 
 #
-# Kernel hacking
+# Other features
 #
+CONFIG_BOEFFLA_WL_BLOCKER=y
 
 #
 # printk and dmesg options
