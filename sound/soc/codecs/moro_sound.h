@@ -26,12 +26,12 @@ int get_speaker_gain(void);
 
 /* Moro sound general */
 #define MORO_SOUND_DEFAULT 		0
-#define MORO_SOUND_VERSION 		"1.0.0"
+#define MORO_SOUND_VERSION 		"2.1.0"
 
 /* Headphone levels */
 #define HEADPHONE_DEFAULT		113
 #define HEADPHONE_MIN 			60
-#define HEADPHONE_MAX 			190
+#define HEADPHONE_MAX 			170
 
 /* Earpiece levels */
 #define EARPIECE_DEFAULT		128
