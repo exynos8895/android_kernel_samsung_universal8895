@@ -290,7 +290,7 @@ static int process_check_accessory(void *data)
 	uint16_t pid = usbpd_data->Product_ID;
 	uint16_t acc_type = CCIC_DOCK_DETACHED;
 
-	if (((pid < GEARVR_PRODUCT_ID) || (pid > GEARVR_PRODUCT_ID_5)) && (pid != CCIC_DOCK_NEW) && (pid != CCIC_DOCK_DEXPAD)) {
+	if (((pid < GEARVR_PRODUCT_ID) || (pid > GEARVR_PRODUCT_ID_5)) && (acc_type != CCIC_DOCK_NEW) && (pid != DEXPAD_PRODUCT_ID)) {
 		vid = SAMSUNG_VENDOR_ID;
 		pid = DEXDOCK_PRODUCT_ID;
 	}
