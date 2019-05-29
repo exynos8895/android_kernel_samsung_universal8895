@@ -663,6 +663,9 @@ KBUILD_CFLAGS	+= $(call cc-disable-warning, format-overflow)
 KBUILD_CFLAGS	+= $(call cc-disable-warning, int-in-bool-context)
 
 KBUILD_CFLAGS   += -O2 -mcpu=exynos-m1.cortex-a53+crc+crypto
+ 
+# Disallow introduction of unaligned stores
+KBUILD_CFLAGS	+= $(call cc-option,--param=store-merging-allow-unaligned=0)
 
 # Tell gcc to never replace conditional load with a non-conditional one
 KBUILD_CFLAGS	+= $(call cc-option,--param=allow-store-data-races=0)
