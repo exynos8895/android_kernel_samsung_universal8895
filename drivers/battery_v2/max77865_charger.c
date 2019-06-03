@@ -895,7 +895,7 @@ static int max77865_chg_get_property(struct power_supply *psy,
 {
 	struct max77865_charger_data *charger = power_supply_get_drvdata(psy);
 	u8 reg_data;
-	enum power_supply_ext_property ext_psp = psp;
+	enum power_supply_ext_property ext_psp = (enum power_supply_ext_property)psp;
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_ONLINE:
@@ -1031,7 +1031,7 @@ static int max77865_chg_set_property(struct power_supply *psy,
 	u8 reg = 0;
 	static u8 chg_int_state;
 	int buck_state = ENABLE;
-	enum power_supply_ext_property ext_psp = psp;
+	enum power_supply_ext_property ext_psp = (enum power_supply_ext_property)psp;
 
 	switch (psp) {
 	/* val->intval : type */
