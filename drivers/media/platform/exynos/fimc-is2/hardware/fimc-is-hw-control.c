@@ -318,7 +318,7 @@ void print_all_hw_frame_count(struct fimc_is_hardware *hardware)
 }
 
 void fimc_is_hardware_flush_frame(struct fimc_is_hw_ip *hw_ip,
-	enum fimc_is_hw_frame_state state,
+	enum fimc_is_frame_state state,
 	enum ShotErrorType done_type)
 {
 	int ret = 0;
@@ -1729,7 +1729,7 @@ int fimc_is_hardware_process_start(struct fimc_is_hardware *hardware, u32 instan
 
 static int flush_frames_in_instance(struct fimc_is_hw_ip *hw_ip,
 	struct fimc_is_framemgr *framemgr, u32 instance,
-	enum fimc_is_hw_frame_state state, enum ShotErrorType done_type)
+	enum fimc_is_frame_state state, enum ShotErrorType done_type)
 {
 	int retry = 150;
 	struct fimc_is_frame *frame;
@@ -1793,7 +1793,7 @@ void fimc_is_hardware_force_stop(struct fimc_is_hardware *hardware,
 	int ret = 0;
 	struct fimc_is_framemgr *framemgr;
 	struct fimc_is_framemgr *framemgr_late;
-	enum fimc_is_hw_frame_state state;
+	enum fimc_is_frame_state state;
 
 	BUG_ON(!hw_ip);
 
