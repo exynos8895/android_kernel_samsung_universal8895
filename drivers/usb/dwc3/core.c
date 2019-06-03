@@ -61,7 +61,7 @@ int dwc3_set_vbus_current(int state)
 	}
 
 	pval.intval = state; 
-	power_supply_set_property(psy, POWER_SUPPLY_EXT_PROP_USB_CONFIGURE, &pval);
+	psy_do_property("battery", set, POWER_SUPPLY_EXT_PROP_USB_CONFIGURE, pval);
 	power_supply_put(psy);
 	return 0;
 }
