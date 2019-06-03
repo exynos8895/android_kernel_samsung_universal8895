@@ -378,7 +378,7 @@ struct fimc_is_hardware {
 
 u32 get_hw_id_from_group(u32 group_id);
 void fimc_is_hardware_flush_frame(struct fimc_is_hw_ip *hw_ip,
-	enum fimc_is_hw_frame_state state,
+	enum fimc_is_frame_state state,
 	enum ShotErrorType done_type);
 int fimc_is_hardware_probe(struct fimc_is_hardware *hardware,
 	struct fimc_is_interface *itf, struct fimc_is_interface_ischain *itfc);

@@ -129,13 +129,11 @@ enum fimc_is_frame_state {
 	FS_INVALID
 };
 
-enum fimc_is_hw_frame_state {
-	FS_HW_FREE,
-	FS_HW_REQUEST,
-	FS_HW_CONFIGURE,
-	FS_HW_WAIT_DONE,
-	FS_HW_INVALID
-};
+#define FS_HW_FREE	FS_FREE
+#define FS_HW_REQUEST	FS_REQUEST
+#define FS_HW_CONFIGURE	FS_PROCESS
+#define FS_HW_WAIT_DONE	FS_COMPLETE
+#define FS_HW_INVALID	FS_INVALID
 
 #define NR_FRAME_STATE FS_INVALID
 
