@@ -1031,7 +1031,8 @@ static inline struct power_supply *get_power_supply_by_name(char *name)
 		ret = -ENOENT;	\
 	} else {	\
 		if (psy->desc->function##_property != NULL) { \
-			ret = psy->desc->function##_property(psy, (property), &(value)); \
+			ret = psy->desc->function##_property(psy, \
+				(enum power_supply_property) (property), &(value)); \
 			if (ret < 0) {	\
 				pr_err("%s: Fail to %s "#function" (%d=>%d)\n", \
 						__func__, name, (property), ret);	\
