@@ -256,8 +256,22 @@ static void shmem_handle_cp_crash(struct mem_link_device *mld,
 	stop_net_ifaces(ld);
 	purge_txq(mld);
 
-	if (cp_online(mc))
-		modem_notify_event(state);
+	if (cp_online(mc)) {
+		switch (state) {
+		case STATE_CRASH_RESET:
+			modem_notify_event(MODEM_EVENT_RESET);
+			break;
+		case STATE_CRASH_EXIT:
+			modem_notify_event(MODEM_EVENT_EXIT);
+			break;
+		case STATE_CRASH_WATCHDOG:
+			modem_notify_event(MODEM_EVENT_WATCHDOG);
+			break;
+		default:
+			mif_err("Invalid state to notify\n");
+			break;
+		}
+	}
 
 	if (cp_online(mc) || cp_booting(mc))
 		set_modem_state(mld, state);
