@@ -1367,7 +1367,7 @@ static int vfsspi_parse_dt(struct device *dev, struct vfsspi_device_data *data)
 
 	if (of_property_read_string_index(np, "vfsspi-chipid", 0,
 			(const char **)&data->chipid))
-		data->chipid = '\0';
+		data->chipid = NULL;
 	pr_info("%s: chipid: %s\n", __func__, data->chipid);
 
 	if (of_property_read_u32(np, "vfsspi-wog", &data->detect_mode))
