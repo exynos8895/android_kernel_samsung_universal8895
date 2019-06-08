@@ -69,8 +69,8 @@ struct id_tbl_info {
 	unsigned reserved_5:8;
 };
 
-static struct asv_tbl_info *asv_tbl;
-static struct id_tbl_info *id_tbl;
+static volatile struct asv_tbl_info *asv_tbl;
+static volatile struct id_tbl_info *id_tbl;
 
 int asv_get_grp(unsigned int id)
 {
