@@ -1424,9 +1424,9 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 								__func__, ts->scrub_id);
 						ts->all_spay_count++;
 					}
-					input_report_key(ts->input_dev, KEY_BLACK_UI_GESTURE, 1);
+					input_report_key(ts->input_dev, KEY_WAKEUP, 1);
 					input_sync(ts->input_dev);
-					input_report_key(ts->input_dev, KEY_BLACK_UI_GESTURE, 0);
+					input_report_key(ts->input_dev, KEY_WAKEUP, 0);
 				}
 			}
 			break;
@@ -2059,6 +2059,7 @@ static void sec_ts_set_input_prop(struct sec_ts_data *ts, struct input_dev *dev,
 		set_bit(KEY_SIDE_GESTURE_LEFT, dev->keybit);
 	}
 	set_bit(propbit, dev->propbit);
+        set_bit(KEY_WAKEUP, dev->keybit);
 	set_bit(KEY_HOMEPAGE, dev->keybit);
 
 	input_set_capability(dev, EV_SW, SW_GLOVE);
