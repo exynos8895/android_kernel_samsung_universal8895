@@ -1911,7 +1911,9 @@ static unsigned char fts_event_handler_type_b(struct fts_ts_info *info,
 				string_addr = FTS_CMD_STRING_ACCESS + 10;
 				fts_read_from_string(info, &string_addr, string_data, sizeof(string_data));
 
-				input_report_key(info->input_dev, KEY_BLACK_UI_GESTURE, 1);
+				input_report_key(info->input_dev, KEY_WAKEUP, 1);
+				input_sync(info->input_dev);
+				input_report_key(info->input_dev, KEY_WAKEUP, 0);
 				info->scrub_id = SPECIAL_EVENT_TYPE_AOD_DOUBLETAB;
 				info->scrub_x = (string_data[1] & 0xFF) << 8 | (string_data[0] & 0xFF);
 				info->scrub_y = (string_data[3] & 0xFF) << 8 | (string_data[2] & 0xFF);
@@ -2020,7 +2022,9 @@ static unsigned char fts_event_handler_type_b(struct fts_ts_info *info,
 
 			switch (event_type) {
 			case FTS_STRING_EVENT_AOD_TRIGGER:
-				input_report_key(info->input_dev, KEY_BLACK_UI_GESTURE, 1);
+				input_report_key(info->input_dev, KEY_WAKEUP, 1);
+				input_sync(info->input_dev);
+				input_report_key(info->input_dev, KEY_WAKEUP, 0);
 				info->scrub_id = SPECIAL_EVENT_TYPE_AOD_DOUBLETAB;
 				info->scrub_x = (data[EventNum * FTS_EVENT_SIZE + 4] & 0xF0) << 4 |
 						(data[EventNum * FTS_EVENT_SIZE + 3] & 0xFF);
@@ -2770,6 +2774,7 @@ static void fts_set_input_prop(struct fts_ts_info *info, struct input_dev *dev, 
 	set_bit(BTN_TOUCH, dev->keybit);
 	set_bit(BTN_TOOL_FINGER, dev->keybit);
 	set_bit(KEY_BLACK_UI_GESTURE, dev->keybit);
+        set_bit(KEY_WAKEUP, dev->keybit);
 	set_bit(KEY_HOMEPAGE, dev->keybit);
 	set_bit(KEY_INT_CANCEL, dev->keybit);
 
