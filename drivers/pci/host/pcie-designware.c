@@ -24,6 +24,7 @@
 #include <linux/types.h>
 
 #include "pcie-designware.h"
+#include "pci-exynos.h"
 
 /* Synopsis specific PCIE configuration registers */
 #define PCIE_PORT_LINK_CONTROL		0x710
@@ -634,6 +635,11 @@ static int dw_pcie_wr_other_conf(struct pcie_port *pp, struct pci_bus *bus,
 static int dw_pcie_valid_config(struct pcie_port *pp,
 				struct pci_bus *bus, int dev)
 {
+        struct exynos_pcie *exynos_pcie = to_exynos_pcie(pp);
+
+        if ((exynos_pcie->state != STATE_LINK_UP) && (exynos_pcie->probe_ok == 1))
+                return 0;
+
 	/* If there is no link, then there is no device */
 	if (bus->number != pp->root_bus_nr) {
 		if (!dw_pcie_link_up(pp))

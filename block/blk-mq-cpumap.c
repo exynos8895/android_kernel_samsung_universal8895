@@ -31,7 +31,7 @@ static int get_first_sibling(unsigned int cpu)
 	return cpu;
 }
 
-int blk_mq_update_queue_map(unsigned int *map, unsigned int nr_queues,
+static int blk_mq_update_queue_map(unsigned int *map, unsigned int nr_queues,
 			    const struct cpumask *online_mask)
 {
 	unsigned int i, nr_cpus, nr_uniq_cpus, queue, first_sibling;
@@ -52,18 +52,13 @@ int blk_mq_update_queue_map(unsigned int *map, unsigned int nr_queues,
 
 	queue = 0;
 	for_each_possible_cpu(i) {
-		if (!cpumask_test_cpu(i, online_mask)) {
-			map[i] = 0;
-			continue;
-		}
-
 		/*
 		 * Easy case - we have equal or more hardware queues. Or
 		 * there are no thread siblings to take into account. Do
 		 * 1:1 if enough, or sequential mapping if less.
 		 */
-		if (nr_queues >= nr_cpus || nr_cpus == nr_uniq_cpus) {
-			map[i] = cpu_to_queue_index(nr_cpus, nr_queues, queue);
+		if (nr_queues >= nr_cpus) {
+			map[i] = cpu_to_queue_index(nr_cpu_ids, nr_queues, queue);
 			queue++;
 			continue;
 		}
@@ -75,7 +70,7 @@ int blk_mq_update_queue_map(unsigned int *map, unsigned int nr_queues,
 		 */
 		first_sibling = get_first_sibling(i);
 		if (first_sibling == i) {
-			map[i] = cpu_to_queue_index(nr_uniq_cpus, nr_queues,
+			map[i] = cpu_to_queue_index(nr_cpu_ids, nr_queues,
 							queue);
 			queue++;
 		} else

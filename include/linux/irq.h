@@ -206,6 +206,7 @@ enum {
 	IRQD_IRQ_INPROGRESS		= (1 << 18),
 	IRQD_WAKEUP_ARMED		= (1 << 19),
 	IRQD_FORWARDED_TO_VCPU		= (1 << 20),
+	IRQD_GIC_MULTI_TARGET		= (1 << 28),
 };
 
 #define __irqd_to_state(d)		((d)->common->state_use_accessors)

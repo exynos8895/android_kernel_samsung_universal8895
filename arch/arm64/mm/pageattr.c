@@ -95,6 +95,39 @@ static int change_memory_common(unsigned long addr, int numpages,
 	return __change_memory_common(start, size, set_mask, clear_mask);
 }
 
+#ifdef CONFIG_SEC_MMIOTRACE
+int set_memory_valid_n(unsigned long addr, int numpages)
+{
+	return change_memory_common(addr, numpages,
+					__pgprot(PTE_VALID),
+					__pgprot(PTE_PROT_NONE));
+}
+EXPORT_SYMBOL_GPL(set_memory_valid);
+
+int set_memory_invalid_n(unsigned long addr, int numpages)
+{
+	return change_memory_common(addr, numpages,
+					__pgprot(PTE_PROT_NONE),
+					__pgprot(PTE_VALID));
+}
+#endif
+
+int set_memory_valid(unsigned long addr, int numpages)
+{
+	return change_memory_common(addr, numpages,
+					__pgprot(PTE_VALID),
+					__pgprot(0));
+}
+EXPORT_SYMBOL_GPL(set_memory_valid);
+
+int set_memory_invalid(unsigned long addr, int numpages)
+{
+	return change_memory_common(addr, numpages,
+					__pgprot(0),
+					__pgprot(PTE_VALID));
+}
+EXPORT_SYMBOL_GPL(set_memory_invalid);
+
 int set_memory_ro(unsigned long addr, int numpages)
 {
 	return change_memory_common(addr, numpages,

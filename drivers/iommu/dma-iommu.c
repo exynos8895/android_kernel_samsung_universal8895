@@ -91,8 +91,9 @@ int iommu_dma_init_domain(struct iommu_domain *domain, dma_addr_t base, u64 size
 	struct iova_domain *iovad = domain->iova_cookie;
 	unsigned long order, base_pfn, end_pfn;
 
+	/* HACK: return success always */
 	if (!iovad)
-		return -ENODEV;
+		return 0;
 
 	/* Use the smallest supported page size for IOVA granularity */
 	order = __ffs(domain->ops->pgsize_bitmap);

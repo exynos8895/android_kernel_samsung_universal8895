@@ -64,7 +64,7 @@ config DEBUG_SET_MODULE_RONX
 
 config DEBUG_RODATA
 	bool "Make kernel text and rodata read-only"
-	default y
+	default n
 	help
 	  If this is set, kernel text and rodata will be made read-only. This
 	  is to help catch accidental or malicious attempts to change the
@@ -86,5 +86,38 @@ config DEBUG_ALIGN_RODATA
 	  If in doubt, say N
 
 source "drivers/hwtracing/coresight/Kconfig"
+
+comment "Samsung Rooting Restriction Feature"
+config SEC_RESTRICT_ROOTING
+	bool "Samsung Rooting Restriction Feature"
+	default n
+	help
+	  Restrict unauthorized executions with root permission.
+
+config SEC_RESTRICT_SETUID
+	bool "Restrict changing root privilege except allowed process"
+	depends on SEC_RESTRICT_ROOTING
+	default y
+	help
+	  Say Y here if you want to restrict functions related setuid. Only allowed
+	  process can chanage ROOT privilege. Saying N will not restrict changing
+	  permission.
+
+config SEC_RESTRICT_FORK
+	bool "Restrict forking process except allowed process"
+	depends on SEC_RESTRICT_ROOTING
+	default y
+	help
+	  Say Y here if you want to restrict function related fork. Process matched
+	  special condition will be not forked. Saying N will not restrict forking
+	  process.
+
+config SEC_RESTRICT_ROOTING_LOG
+	bool "Print restricted result to kernel log"
+	depends on SEC_RESTRICT_ROOTING
+	default n
+	help
+	   Say Y here if you want to see result of restricting SETUID or FORK. It will
+	   be displayed by kernel error log. Saying N will not be displayed anything.
 
 endmenu

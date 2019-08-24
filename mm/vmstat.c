@@ -764,6 +764,7 @@ const char * const vmstat_text[] = {
 	"workingset_nodereclaim",
 	"nr_anon_transparent_hugepages",
 	"nr_free_cma",
+	"nr_free_rbin",
 
 	/* enum writeback_stat_item counters */
 	"nr_dirty_threshold",
@@ -826,6 +827,7 @@ const char * const vmstat_text[] = {
 	"compact_stall",
 	"compact_fail",
 	"compact_success",
+	"compact_daemon_wake",
 #endif
 
 #ifdef CONFIG_HUGETLB_PAGE
@@ -929,6 +931,9 @@ static char * const migratetype_names[MIGRATE_TYPES] = {
 	"HighAtomic",
 #ifdef CONFIG_CMA
 	"CMA",
+#ifdef CONFIG_RBIN
+	"RBIN",
+#endif
 #endif
 #ifdef CONFIG_MEMORY_ISOLATION
 	"Isolate",

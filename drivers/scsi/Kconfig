@@ -36,6 +36,41 @@ config SCSI
 	  However, do not compile this as a module if your root file system
 	  (the one containing the directory /) is located on a SCSI device.
 
+config UFS_FMP_DM_CRYPT
+        bool "FMP acceleration for DM_CRYPT"
+        depends on DM_CRYPT
+	select FMP_UFS
+	select FMP_DM_CRYPT
+        help
+          This option accelerates dm-crypt by using the flash
+          memory protector feature of the UFS controller.
+
+config UFS_FMP_ECRYPT_FS
+        bool "FMP acceleration for eCrypt filesystem"
+        depends on ECRYPT_FS
+	select FMP_UFS
+	select FMP_ECRYPT_FS
+        help
+          This option activates flash memory protector of the UFS controller to
+          accelerate eCryptfs.
+
+config UFS_FMP_EXT4CRYPT_FS
+        bool "FMP acceleration for Ext4crypt filesystem"
+	depends on EXT4_FS_ENCRYPTION
+	depends on UFS_FMP_ECRYPT_FS=n
+	select FMP_UFS
+	select FMP_EXT4CRYPT_FS
+        help
+          Enable FMP encryption of ext4 files and directories. If
+          This feature is enabled, ext4 encryption is bypassed and
+          Exynos FMP encrypts and decrypts user data on each file.
+
+config UFS_SRPMB
+	bool "UFS Secure RPMB support"
+	depends on SCSI
+	help
+	  This option activates ufs secure rpmb.
+
 config SCSI_DMA
 	bool
 	default n

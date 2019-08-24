@@ -654,6 +654,11 @@ config SPI_NUC900
 	help
 	  SPI driver for Nuvoton NUC900 series ARM SoCs
 
+config SENSORS_FP_SPI_NUMBER
+	depends on SENSORS_FINGERPRINT
+	int "Fingerprint spi gpio number"
+	default 0
+
 #
 # Add new SPI master controllers in alphabetical order above this line
 #

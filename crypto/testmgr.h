@@ -141,6 +141,7 @@ static char zeroed_string[48];
 /*
  * RSA test vectors. Borrowed from openSSL.
  */
+#ifdef CONFIG_CRYPTO_RSA
 #ifdef CONFIG_CRYPTO_FIPS
 #define RSA_TEST_VECTORS	2
 #else
@@ -332,7 +333,8 @@ static struct akcipher_testvec rsa_tv_template[] = {
 	.public_key_vec = true,
 	}
 };
-
+#endif
+//end CONFIG_CRYPTO_RSA
 /*
  * MD4 test vectors from RFC1320
  */
@@ -738,7 +740,11 @@ static struct hash_testvec sha1_tv_template[] = {
 		.plaintext = "abc",
 		.psize	= 3,
 		.digest	= "\xa9\x99\x3e\x36\x47\x06\x81\x6a\xba\x3e"
+#if FIPS_FUNC_TEST == 6
+			  "\x25\x72\x78\x50\xc2\x6c\x9c\xd0\xd8\x9d",
+#else
 			  "\x25\x71\x78\x50\xc2\x6c\x9c\xd0\xd8\x9d",
+#endif
 	}, {
 		.plaintext = "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq",
 		.psize	= 56,
@@ -2416,7 +2422,11 @@ static struct hash_testvec hmac_sha1_tv_template[] = {
 		.plaintext = "Hi There",
 		.psize	= 8,
 		.digest	= "\xb6\x17\x31\x86\x55\x05\x72\x64"
+#if FIPS_FUNC_TEST == 12
+			  "\xe3\x8b\xc0\xb6\xfb\x37\x8c\x8e\xf1"
+#else
 			  "\xe2\x8b\xc0\xb6\xfb\x37\x8c\x8e\xf1"
+#endif
 			  "\x46\xbe",
 	}, {
 		.key	= "Jefe",
@@ -14172,7 +14182,11 @@ static struct cipher_testvec cast6_xts_dec_tv_template[] = {
 static struct cipher_testvec aes_enc_tv_template[] = {
 	{ /* From FIPS-197 */
 		.key	= "\x00\x01\x02\x03\x04\x05\x06\x07"
+#if FIPS_FUNC_TEST == 1
+			  "\x08\x09\x0a\x0b\x0c\x0d\x0e\x01",
+#else
 			  "\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f",
+#endif
 		.klen	= 16,
 		.input	= "\x00\x11\x22\x33\x44\x55\x66\x77"
 			  "\x88\x99\xaa\xbb\xcc\xdd\xee\xff",
@@ -20074,7 +20088,11 @@ static struct aead_testvec aes_gcm_enc_tv_template[] = {
 		.rlen	= 32,
 	}, {
 		.key	= "\xfe\xff\xe9\x92\x86\x65\x73\x1c"
+#if FIPS_FUNC_TEST == 100
+			  "\x6c\x6a\x8f\x94\x67\x30\x83\x08",
+#else
 			  "\x6d\x6a\x8f\x94\x67\x30\x83\x08",
+#endif
 		.klen	= 16,
 		.iv	= "\xca\xfe\xba\xbe\xfa\xce\xdb\xad"
 			  "\xde\xca\xf8\x88",
@@ -24173,7 +24191,11 @@ static struct cprng_testvec ansi_cprng_aes_tv_template[] = {
 static struct drbg_testvec drbg_pr_sha256_tv_template[] = {
 	{
 		.entropy = (unsigned char *)
+#if FIPS_FUNC_TEST == 92
+			"\x71\x88\x4c\xcd\x6c\x85\x57\x70\xf7\x0b\x8b\x86"
+#else
 			"\x72\x88\x4c\xcd\x6c\x85\x57\x70\xf7\x0b\x8b\x86"
+#endif
 			"\xc1\xeb\xd2\x4e\x36\x14\xab\x18\xc4\x9c\xc9\xcf"
 			"\x1a\xe8\xf7\x7b\x02\x49\x73\xd7\xf1\x42\x7d\xc6"
 			"\x3f\x29\x2d\xec\xd3\x66\x51\x3f\x1d\x8d\x5b\x4e",
@@ -24331,7 +24353,11 @@ static struct drbg_testvec drbg_pr_sha256_tv_template[] = {
 static struct drbg_testvec drbg_pr_hmac_sha256_tv_template[] = {
 	{
 		.entropy = (unsigned char *)
+#if FIPS_FUNC_TEST == 93
+			"\x98\x69\xe5\x4b\x47\x03\xff\x31\x78\x5b\x87\x9a"
+#else
 			"\x99\x69\xe5\x4b\x47\x03\xff\x31\x78\x5b\x87\x9a"
+#endif
 			"\x7e\x5c\x0e\xae\x0d\x3e\x30\x95\x59\xe9\xfe\x96"
 			"\xb0\x67\x6d\x49\xd5\x91\xea\x4d\x07\xd2\x0d\x46"
 			"\xd0\x64\x75\x7d\x30\x23\xca\xc2\x37\x61\x27\xab",
@@ -24489,7 +24515,11 @@ static struct drbg_testvec drbg_pr_hmac_sha256_tv_template[] = {
 static struct drbg_testvec drbg_pr_ctr_aes128_tv_template[] = {
 	{
 		.entropy = (unsigned char *)
+#if FIPS_FUNC_TEST == 91
+			"\xd2\x44\xc6\x61\x81\x6d\xca\x9d\x15\x28\x8a\x42"
+#else
 			"\xd1\x44\xc6\x61\x81\x6d\xca\x9d\x15\x28\x8a\x42"
+#endif
 			"\x94\xd7\x28\x9c\x43\x77\x19\x29\x1a\x6d\xc3\xa2",
 		.entropylen = 24,
 		.entpra = (unsigned char *)

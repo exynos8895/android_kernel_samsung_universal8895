@@ -35,6 +35,8 @@
 #include "gadget.h"
 #include "io.h"
 
+extern bool lockup_noti;
+
 static void __dwc3_ep0_do_control_status(struct dwc3 *dwc, struct dwc3_ep *dep);
 static void __dwc3_ep0_do_control_data(struct dwc3 *dwc,
 		struct dwc3_ep *dep, struct dwc3_request *req);
@@ -65,6 +67,11 @@ static void dwc3_ep0_prepare_one_trb(struct dwc3 *dwc, u8 epnum,
 
 	trb = &dwc->ep0_trb[dep->free_slot];
 
+	if (!trb) {
+		dev_err(dwc->dev, "trb is NULL\n");
+		return;
+	}
+
 	if (chain)
 		dep->free_slot++;
 
@@ -73,6 +80,12 @@ static void dwc3_ep0_prepare_one_trb(struct dwc3 *dwc, u8 epnum,
 	trb->size = len;
 	trb->ctrl = type;
 
+	if (trb->bpl == 0 && trb->bph == 0) {
+		dev_err(dwc->dev, "trb buffer addr is NULL\n");
+		trb->size = 0;
+		trb->ctrl = 0;
+		return;
+	}
 	trb->ctrl |= (DWC3_TRB_CTRL_HWO
 			| DWC3_TRB_CTRL_ISP_IMI);
 
@@ -265,13 +278,22 @@ static void dwc3_ep0_stall_and_restart(struct dwc3 *dwc)
 {
 	struct dwc3_ep		*dep;
 
+	if (dwc->eps[1]->endpoint.desc == NULL) {
+		dev_err(dwc->dev, "EP1 was disabled: DESC NULL\n");
+		return;
+	}
+	if (dwc->eps[0]->endpoint.desc == NULL) {
+		dev_err(dwc->dev, "EP0 was disabled: DESC NULL\n");
+		return;
+	}
+
 	/* reinitialize physical ep1 */
 	dep = dwc->eps[1];
 	dep->flags = DWC3_EP_ENABLED;
 
 	/* stall is always issued on EP0 */
 	dep = dwc->eps[0];
-	__dwc3_gadget_ep_set_halt(dep, 1, false);
+	__dwc3_gadget_ep_set_halt(dep, 1, true);
 	dep->flags = DWC3_EP_ENABLED;
 	dwc->delayed_status = false;
 
@@ -348,11 +370,17 @@ static int dwc3_ep0_handle_status(struct dwc3 *dwc,
 {
 	struct dwc3_ep		*dep;
 	u32			recip;
+#ifndef CONFIG_USB_ANDROID_SAMSUNG_DISABLE_U1_U2
 	u32			reg;
+#endif
 	u16			usb_status = 0;
 	__le16			*response_pkt;
 
 	recip = ctrl->bRequestType & USB_RECIP_MASK;
+
+	if (lockup_noti)
+		pr_err("%s: recip: 0x%08X\n", __func__, recip);
+
 	switch (recip) {
 	case USB_RECIP_DEVICE:
 		/*
@@ -360,6 +388,7 @@ static int dwc3_ep0_handle_status(struct dwc3 *dwc,
 		 */
 		usb_status |= dwc->gadget.is_selfpowered;
 
+#ifndef CONFIG_USB_ANDROID_SAMSUNG_DISABLE_U1_U2
 		if (dwc->speed == DWC3_DSTS_SUPERSPEED) {
 			reg = dwc3_readl(dwc->regs, DWC3_DCTL);
 			if (reg & DWC3_DCTL_INITU1ENA)
@@ -367,6 +396,7 @@ static int dwc3_ep0_handle_status(struct dwc3 *dwc,
 			if (reg & DWC3_DCTL_INITU2ENA)
 				usb_status |= 1 << USB_DEV_STAT_U2_ENABLED;
 		}
+#endif
 
 		break;
 
@@ -408,7 +438,9 @@ static int dwc3_ep0_handle_feature(struct dwc3 *dwc,
 	u32			recip;
 	u32			wValue;
 	u32			wIndex;
+#ifndef CONFIG_USB_ANDROID_SAMSUNG_DISABLE_U1_U2
 	u32			reg;
+#endif
 	int			ret;
 	enum usb_device_state	state;
 
@@ -417,12 +449,16 @@ static int dwc3_ep0_handle_feature(struct dwc3 *dwc,
 	recip = ctrl->bRequestType & USB_RECIP_MASK;
 	state = dwc->gadget.state;
 
+	if (lockup_noti)
+		pr_err("%s: recip: 0x%08X\n", __func__, recip);
+
 	switch (recip) {
 	case USB_RECIP_DEVICE:
 
 		switch (wValue) {
 		case USB_DEVICE_REMOTE_WAKEUP:
 			break;
+#ifndef CONFIG_USB_ANDROID_SAMSUNG_DISABLE_U1_U2
 		/*
 		 * 9.4.1 says only only for SS, in AddressState only for
 		 * default control pipe
@@ -432,6 +468,10 @@ static int dwc3_ep0_handle_feature(struct dwc3 *dwc,
 				return -EINVAL;
 			if (dwc->speed != DWC3_DSTS_SUPERSPEED)
 				return -EINVAL;
+
+			/* see NEGATIVE RX DETECTION comment */
+			if (set && dwc->revision < DWC3_REVISION_230A)
+				return 0;
 
 			reg = dwc3_readl(dwc->regs, DWC3_DCTL);
 			if (set)
@@ -447,6 +487,10 @@ static int dwc3_ep0_handle_feature(struct dwc3 *dwc,
 			if (dwc->speed != DWC3_DSTS_SUPERSPEED)
 				return -EINVAL;
 
+			/* see NEGATIVE RX DETECTION comment */
+			if (set && dwc->revision < DWC3_REVISION_230A)
+				return 0;
+
 			reg = dwc3_readl(dwc->regs, DWC3_DCTL);
 			if (set)
 				reg |= DWC3_DCTL_INITU2ENA;
@@ -454,6 +498,7 @@ static int dwc3_ep0_handle_feature(struct dwc3 *dwc,
 				reg &= ~DWC3_DCTL_INITU2ENA;
 			dwc3_writel(dwc->regs, DWC3_DCTL, reg);
 			break;
+#endif
 
 		case USB_DEVICE_LTM_ENABLE:
 			return -EINVAL;
@@ -557,9 +602,14 @@ static int dwc3_ep0_set_config(struct dwc3 *dwc, struct usb_ctrlrequest *ctrl)
 	enum usb_device_state state = dwc->gadget.state;
 	u32 cfg;
 	int ret;
+#ifndef CONFIG_USB_ANDROID_SAMSUNG_DISABLE_U1_U2
 	u32 reg;
+#endif
 
 	cfg = le16_to_cpu(ctrl->wValue);
+
+	if (lockup_noti)
+		pr_err("%s: state: 0x%08X\n", __func__, state);
 
 	switch (state) {
 	case USB_STATE_DEFAULT:
@@ -580,14 +630,29 @@ static int dwc3_ep0_set_config(struct dwc3 *dwc, struct usb_ctrlrequest *ctrl)
 				usb_gadget_set_state(&dwc->gadget,
 						USB_STATE_CONFIGURED);
 
+#ifndef CONFIG_USB_ANDROID_SAMSUNG_DISABLE_U1_U2
 			/*
-			 * Enable transition to U1/U2 state when
-			 * nothing is pending from application.
+			 * NEGATIVE RX DETECTION
+			 * Some host controllers (e.g. Intel) perform far-end
+			 * receiver termination _negative_ detection while link
+			 * is in U2 state. Synopsys PIPE PHY considers this
+			 * signalling as U2 LFPS exit, moves to Recovery state
+			 * and waits for training sequence which never comes.
+			 * This finally leads to reconnection. Starting from
+			 * DWC3 core 2.30a, GCTL register has bit U2EXIT_LFPS,
+			 * which improves interoperability with such HCs.
 			 */
-			reg = dwc3_readl(dwc->regs, DWC3_DCTL);
-			reg |= (DWC3_DCTL_ACCEPTU1ENA | DWC3_DCTL_ACCEPTU2ENA);
-			dwc3_writel(dwc->regs, DWC3_DCTL, reg);
-
+			if (dwc->revision >= DWC3_REVISION_230A) {
+				/*
+				 * Enable transition to U1/U2 state when
+				 * nothing is pending from application.
+				 */
+				reg = dwc3_readl(dwc->regs, DWC3_DCTL);
+				reg |= (DWC3_DCTL_ACCEPTU1ENA |
+						DWC3_DCTL_ACCEPTU2ENA);
+				dwc3_writel(dwc->regs, DWC3_DCTL, reg);
+			}
+#endif
 			dwc->resize_fifos = true;
 			dwc3_trace(trace_dwc3_ep0, "resize FIFOs flag SET");
 		}
@@ -711,6 +776,9 @@ static int dwc3_ep0_std_request(struct dwc3 *dwc, struct usb_ctrlrequest *ctrl)
 {
 	int ret;
 
+	if (lockup_noti)
+		pr_err("%s: ctrl->bRequest: 0x%08X\n", __func__, ctrl->bRequest);
+
 	switch (ctrl->bRequest) {
 	case USB_REQ_GET_STATUS:
 		dwc3_trace(trace_dwc3_ep0, "USB_REQ_GET_STATUS");
@@ -730,6 +798,12 @@ static int dwc3_ep0_std_request(struct dwc3 *dwc, struct usb_ctrlrequest *ctrl)
 		break;
 	case USB_REQ_SET_CONFIGURATION:
 		dwc3_trace(trace_dwc3_ep0, "USB_REQ_SET_CONFIGURATION");
+		if(dwc->gadget.speed == USB_SPEED_SUPER)
+			dwc->vbus_curernt = USB_CURRENT_SUPER_SPEED;
+		else
+			dwc->vbus_curernt = USB_CURRENT_HIGH_SPEED;
+		schedule_work(&dwc->set_vbus_current_work);
+
 		ret = dwc3_ep0_set_config(dwc, ctrl);
 		break;
 	case USB_REQ_SET_SEL:
@@ -931,6 +1005,9 @@ static void dwc3_ep0_xfer_complete(struct dwc3 *dwc,
 	dep->resource_index = 0;
 	dwc->setup_packet_pending = false;
 
+	if (lockup_noti)
+		pr_err("%s: ep0state: 0x%08X\n", __func__, dwc->ep0state);
+
 	switch (dwc->ep0state) {
 	case EP0_SETUP_PHASE:
 		dwc3_trace(trace_dwc3_ep0, "Setup Phase");
@@ -967,14 +1044,18 @@ static void __dwc3_ep0_do_control_data(struct dwc3 *dwc,
 			&& (dep->number == 0)) {
 		u32	transfer_size = 0;
 		u32	maxpacket;
-
-		ret = usb_gadget_map_request(&dwc->gadget, &req->request,
-				dep->number);
-		if (ret) {
-			dev_dbg(dwc->dev, "failed to map request\n");
-			return;
+#ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
+		if (req->request.length > DWC3_EP0_BOUNCE_SIZE) {
+#endif
+			ret = usb_gadget_map_request(&dwc->gadget, &req->request,
+					dep->number);
+			if (ret) {
+				dev_dbg(dwc->dev, "failed to map request\n");
+				return;
+			}
+#ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
 		}
-
+#endif
 		maxpacket = dep->endpoint.maxpacket;
 
 		if (req->request.length > DWC3_EP0_BOUNCE_SIZE) {
@@ -1068,6 +1149,9 @@ static void dwc3_ep0_xfernotready(struct dwc3 *dwc,
 {
 	dwc->setup_packet_pending = true;
 
+	if (lockup_noti)
+		pr_err("%s: event->status: 0x%08X\n", __func__, event->status);
+
 	switch (event->status) {
 	case DEPEVT_STATUS_CONTROL_DATA:
 		dwc3_trace(trace_dwc3_ep0, "Control Data");
@@ -1120,6 +1204,10 @@ void dwc3_ep0_interrupt(struct dwc3 *dwc,
 			dwc3_ep_event_string(event->endpoint_event),
 			epnum >> 1, (epnum & 1) ? "in" : "out",
 			dwc3_ep0_state_string(dwc->ep0state));
+
+	if (lockup_noti)
+		pr_err("%s: event->endpoint_event: 0x%08X\n",
+					__func__, event->endpoint_event);
 
 	switch (event->endpoint_event) {
 	case DWC3_DEPEVT_XFERCOMPLETE:

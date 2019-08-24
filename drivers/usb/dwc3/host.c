@@ -32,11 +32,12 @@ int dwc3_host_init(struct dwc3 *dwc)
 		return -ENOMEM;
 	}
 
-	dma_set_coherent_mask(&xhci->dev, dwc->dev->coherent_dma_mask);
-
 	xhci->dev.parent	= dwc->dev;
 	xhci->dev.dma_mask	= dwc->dev->dma_mask;
 	xhci->dev.dma_parms	= dwc->dev->dma_parms;
+	xhci->dev.archdata.dma_ops = dwc->dev->archdata.dma_ops;
+
+	dma_set_coherent_mask(&xhci->dev, dwc->dev->coherent_dma_mask);
 
 	dwc->xhci = xhci;
 
@@ -51,6 +52,14 @@ int dwc3_host_init(struct dwc3 *dwc)
 
 	pdata.usb3_lpm_capable = dwc->usb3_lpm_capable;
 
+	/* pre dma_alloc */
+	pdata.xhci_alloc.pre_dma_alloc = dma_alloc_coherent(dwc->dev, SZ_2M,
+					&pdata.xhci_alloc.dma, GFP_KERNEL);
+	if (!pdata.xhci_alloc.pre_dma_alloc) {
+		dev_err(dwc->dev, "%s: dma_alloc fail!!!!\n", __func__);
+		goto err1;
+	}
+
 	ret = platform_device_add_data(xhci, &pdata, sizeof(pdata));
 	if (ret) {
 		dev_err(dwc->dev, "couldn't add platform data to xHCI device\n");
@@ -62,13 +71,16 @@ int dwc3_host_init(struct dwc3 *dwc)
 	phy_create_lookup(dwc->usb3_generic_phy, "usb3-phy",
 			  dev_name(&xhci->dev));
 
-	ret = platform_device_add(xhci);
-	if (ret) {
-		dev_err(dwc->dev, "failed to register xHCI device\n");
-		goto err2;
+	if (!dwc->dotg) {
+		ret = platform_device_add(xhci);
+		if (ret) {
+			dev_err(dwc->dev, "failed to register xHCI device\n");
+			goto err2;
+		}
 	}
 
 	return 0;
+
 err2:
 	phy_remove_lookup(dwc->usb2_generic_phy, "usb2-phy",
 			  dev_name(&xhci->dev));
@@ -85,5 +97,6 @@ void dwc3_host_exit(struct dwc3 *dwc)
 			  dev_name(&dwc->xhci->dev));
 	phy_remove_lookup(dwc->usb3_generic_phy, "usb3-phy",
 			  dev_name(&dwc->xhci->dev));
-	platform_device_unregister(dwc->xhci);
+	if (!dwc->dotg)
+		platform_device_unregister(dwc->xhci);
 }

@@ -33,6 +33,8 @@
 
 #include "videobuf2-internal.h"
 
+#include <linux/file.h>
+
 /* Flags that are set by the vb2 core */
 #define V4L2_BUFFER_MASK_FLAGS	(V4L2_BUF_FLAG_MAPPED | V4L2_BUF_FLAG_QUEUED | \
 				 V4L2_BUF_FLAG_DONE | V4L2_BUF_FLAG_ERROR | \
@@ -112,9 +114,9 @@ static int __verify_length(struct vb2_buffer *vb, const struct v4l2_buffer *b)
 	return 0;
 }
 
-static int __set_timestamp(struct vb2_buffer *vb, const void *pb)
+static int __set_timestamp(struct vb2_buffer *vb, void *pb)
 {
-	const struct v4l2_buffer *b = pb;
+	struct v4l2_buffer *b = pb;
 	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
 	struct vb2_queue *q = vb->vb2_queue;
 
@@ -130,6 +132,36 @@ static int __set_timestamp(struct vb2_buffer *vb, const void *pb)
 		if (b->flags & V4L2_BUF_FLAG_TIMECODE)
 			vbuf->timecode = b->timecode;
 	}
+
+	q->timeline_max++;
+	if (!!(b->flags & V4L2_BUF_FLAG_USE_SYNC)) {
+		int fd = get_unused_fd_flags(0);
+
+		if (fd < 0) {
+			dprintk(1, "qbuf: failed to get unused fd\n");
+			b->reserved = -1;
+			return fd;
+		} else {
+			struct sync_pt *pt;
+			struct sync_fence *fence;
+
+			pt = sw_sync_pt_create(q->timeline, q->timeline_max);
+			if (!pt) {
+				dprintk(1, "qbuf: failed to create sync_pt\n");
+				return -ENOMEM;
+			}
+
+			fence = sync_fence_create("vb2", pt);
+			if (!fence) {
+				sync_pt_free(pt);
+				dprintk(1, "qbuf: failed to create fence\n");
+				return -ENOMEM;
+			}
+
+			sync_fence_install(fence, fd);
+			b->reserved = fd;
+		}
+	}
 	return 0;
 };
 
@@ -141,7 +173,7 @@ static void vb2_warn_zero_bytesused(struct vb2_buffer *vb)
 		return;
 
 	check_once = true;
-	WARN_ON(1);
+	/* WARN_ON(1); */
 
 	pr_warn("use of bytesused == 0 is deprecated and will be removed in the future,\n");
 	if (vb->vb2_queue->allow_zero_bytesused)
@@ -199,10 +231,9 @@ static int __fill_v4l2_buffer(struct vb2_buffer *vb, void *pb)
 	b->timestamp = vbuf->timestamp;
 	b->timecode = vbuf->timecode;
 	b->sequence = vbuf->sequence;
-	b->reserved2 = 0;
-	b->reserved = 0;
+	b->reserved2 = vbuf->reserved2;
 
-	if (q->is_multiplanar) {
+	if (V4L2_TYPE_IS_MULTIPLANAR(b->type)) {
 		/*
 		 * Fill in plane-related data if userspace provided an array
 		 * for it. The caller has already verified memory and size.
@@ -316,6 +347,16 @@ static int __fill_vb2_buffer(struct vb2_buffer *vb,
 	vbuf->timestamp.tv_sec = 0;
 	vbuf->timestamp.tv_usec = 0;
 	vbuf->sequence = 0;
+	vbuf->reserved2 = b->reserved2;
+
+	if (!!(b->flags & V4L2_BUF_FLAG_USE_SYNC) && ((int)b->reserved >= 0)) {
+		vb->acquire_fence = sync_fence_fdget((int)b->reserved);
+		if (!vb->acquire_fence) {
+			dprintk(1, "failed to import fence fd %u\n",
+				b->reserved);
+			return -EINVAL;
+		}
+	}
 
 	if (V4L2_TYPE_IS_MULTIPLANAR(b->type)) {
 		if (b->memory == VB2_MEMORY_USERPTR) {

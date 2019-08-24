@@ -17,8 +17,10 @@
 #include <linux/poll.h>
 #include <linux/dma-buf.h>
 
+#include "../../drivers/staging/android/sw_sync.h"
+
 #define VB2_MAX_FRAME	(32)
-#define VB2_MAX_PLANES	(8)
+#define VB2_MAX_PLANES	(17)
 
 enum vb2_memory {
 	VB2_MEMORY_UNKNOWN	= 0,
@@ -210,6 +212,8 @@ struct vb2_queue;
  * @memory:		the method, in which the actual data is passed
  * @num_planes:		number of planes in the buffer
  *			on an internal driver queue
+ * @acquire_fence: sync fence that will be signaled when the buffer's
+ *         contents are available.
  * @planes:		private per-plane information; do not change
  */
 struct vb2_buffer {
@@ -219,6 +223,8 @@ struct vb2_buffer {
 	unsigned int		memory;
 	unsigned int		num_planes;
 	struct vb2_plane	planes[VB2_MAX_PLANES];
+
+	struct sync_fence   *acquire_fence;
 
 	/* private: internal use only
 	 *
@@ -367,7 +373,7 @@ struct vb2_buf_ops {
 	int (*fill_user_buffer)(struct vb2_buffer *vb, void *pb);
 	int (*fill_vb2_buffer)(struct vb2_buffer *vb, const void *pb,
 				struct vb2_plane *planes);
-	int (*set_timestamp)(struct vb2_buffer *vb, const void *pb);
+	int (*set_timestamp)(struct vb2_buffer *vb, void *pb);
 };
 
 /**
@@ -435,6 +441,9 @@ struct vb2_buf_ops {
  *		when a buffer with the V4L2_BUF_FLAG_LAST is dequeued.
  * @fileio:	file io emulator internal data, used only if emulator is active
  * @threadio:	thread io internal data, used only if thread is active
+ * @timeline:  monotonic timeline of Android sync that signals the release
+ *     fences
+ * @timeline_max: the timestamp of the most recent release fence
  */
 struct vb2_queue {
 	unsigned int			type;
@@ -483,6 +492,9 @@ struct vb2_queue {
 
 	struct vb2_fileio_data		*fileio;
 	struct vb2_threadio_data	*threadio;
+
+	struct sw_sync_timeline     *timeline;
+	u32             timeline_max;
 
 #ifdef CONFIG_VIDEO_ADV_DEBUG
 	/*

@@ -36,6 +36,8 @@ struct vm_area_struct;
 #define ___GFP_OTHER_NODE	0x800000u
 #define ___GFP_WRITE		0x1000000u
 #define ___GFP_KSWAPD_RECLAIM	0x2000000u
+#define ___GFP_CMA		0x4000000u
+#define ___GFP_RBIN		0x8000000u
 /* If the above are modified, __GFP_BITS_SHIFT may need updating */
 
 /*
@@ -49,7 +51,8 @@ struct vm_area_struct;
 #define __GFP_HIGHMEM	((__force gfp_t)___GFP_HIGHMEM)
 #define __GFP_DMA32	((__force gfp_t)___GFP_DMA32)
 #define __GFP_MOVABLE	((__force gfp_t)___GFP_MOVABLE)  /* Page is movable */
-#define __GFP_MOVABLE	((__force gfp_t)___GFP_MOVABLE)  /* ZONE_MOVABLE allowed */
+#define __GFP_CMA	((__force gfp_t)___GFP_CMA)      /* Allocate from CMA */
+#define __GFP_RBIN	((__force gfp_t)___GFP_RBIN)      /* Allocate from RBIN */
 #define GFP_ZONEMASK	(__GFP_DMA|__GFP_HIGHMEM|__GFP_DMA32|__GFP_MOVABLE)
 
 /*
@@ -183,7 +186,7 @@ struct vm_area_struct;
 #define __GFP_OTHER_NODE ((__force gfp_t)___GFP_OTHER_NODE)
 
 /* Room for N __GFP_FOO bits */
-#define __GFP_BITS_SHIFT 26
+#define __GFP_BITS_SHIFT 28
 #define __GFP_BITS_MASK ((__force gfp_t)((1 << __GFP_BITS_SHIFT) - 1))
 
 /*
@@ -245,7 +248,7 @@ struct vm_area_struct;
 #define GFP_DMA		__GFP_DMA
 #define GFP_DMA32	__GFP_DMA32
 #define GFP_HIGHUSER	(GFP_USER | __GFP_HIGHMEM)
-#define GFP_HIGHUSER_MOVABLE	(GFP_HIGHUSER | __GFP_MOVABLE)
+#define GFP_HIGHUSER_MOVABLE	(GFP_HIGHUSER | __GFP_MOVABLE | __GFP_CMA)
 #define GFP_TRANSHUGE	((GFP_HIGHUSER_MOVABLE | __GFP_COMP | \
 			 __GFP_NOMEMALLOC | __GFP_NORETRY | __GFP_NOWARN) & \
 			 ~__GFP_KSWAPD_RECLAIM)
@@ -544,11 +547,21 @@ static inline bool pm_suspended_storage(void)
 /* The below functions must be run on a range from a single zone. */
 extern int alloc_contig_range(unsigned long start, unsigned long end,
 			      unsigned migratetype);
+extern int alloc_contig_range_fast(unsigned long start, unsigned long end,
+			      unsigned migratetype);
 extern void free_contig_range(unsigned long pfn, unsigned nr_pages);
 
 /* CMA stuff */
-extern void init_cma_reserved_pageblock(struct page *page);
+extern void init_cma_reserved_pageblock(struct page *page, bool is_rbin);
+#endif
 
+#ifdef CONFIG_HPA
+int alloc_pages_highorder(int order, struct page **pages, int nents);
+#else
+static inline int alloc_pages_highorder(int order, struct page **pages, int nents)
+{
+	return 0;
+}
 #endif
 
 #endif /* __LINUX_GFP_H */

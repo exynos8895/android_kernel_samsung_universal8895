@@ -86,6 +86,18 @@ struct bio {
 	};
 
 	unsigned short		bi_vcnt;	/* how many bio_vec's */
+#if defined(CONFIG_FMP_DM_CRYPT) || defined(CONFIG_FMP_EXT4CRYPT_FS)
+	int			private_enc_mode;
+	int			private_algo_mode;
+	unsigned char		*key;
+	unsigned int		key_length;
+#endif
+	/*
+	 * When using dircet-io (O_DIRECT), we can't get the inode from a bio
+	 * by walking bio->bi_io_vec->bv_page->mapping->host
+	 * since the page is anon.
+	 */
+	struct inode		*bi_dio_inode;
 
 	/*
 	 * Everything starting with bi_max_vecs will be preserved by bio_reset()
@@ -120,13 +132,22 @@ struct bio {
 #define BIO_QUIET	6	/* Make BIO Quiet */
 #define BIO_CHAIN	7	/* chained bio, ->bi_remaining in effect */
 #define BIO_REFFED	8	/* bio has elevated ->bi_cnt */
+#ifdef CONFIG_JOURNAL_DATA_TAG
+/* XXX Be carefull not to touch BIO_RESET_BITS */
+#define BIO_JOURNAL    11  /* bio contains journal data */
+#define BIO_JMETA  12  /* bio contains metadata */
+#define BIO_JOURNAL_TAG_MASK   ((1UL << BIO_JOURNAL) | (1UL << BIO_JMETA))
+#endif
+
+#define BIO_BYPASS	13
 
 /*
  * Flags starting here get preserved by bio_reset() - this includes
  * BIO_POOL_IDX()
  */
-#define BIO_RESET_BITS	13
-#define BIO_OWNS_VEC	13	/* bio_free() should free bvec */
+#define BIO_RESET_BITS	14  /* should be larger then BIO_JMETA */
+#define BIO_OWNS_VEC	14	/* bio_free() should free bvec */
+
 
 /*
  * top 4 bits of bio flags indicate the pool this bio came from
@@ -267,5 +288,8 @@ static inline unsigned int blk_qc_t_to_tag(blk_qc_t cookie)
 {
 	return cookie & ((1u << BLK_QC_T_SHIFT) - 1);
 }
+
+#define BIO_DISK_ENC	(1 << 0)
+#define BIO_FILE_ENC	(1 << 1)
 
 #endif /* __LINUX_BLK_TYPES_H */

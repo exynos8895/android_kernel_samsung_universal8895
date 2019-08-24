@@ -483,9 +483,13 @@ int ext4_bio_write_page(struct ext4_io_submit *io,
 	} while ((bh = bh->b_this_page) != head);
 
 	bh = head = page_buffers(page);
-
+#ifdef CONFIG_FMP_EXT4CRYPT_FS
+	if (ext4_encrypted_inode(inode) && S_ISREG(inode->i_mode) &&
+	    nr_to_submit && !inode->i_mapping->private_enc_mode) {
+#else
 	if (ext4_encrypted_inode(inode) && S_ISREG(inode->i_mode) &&
 	    nr_to_submit) {
+#endif
 		gfp_t gfp_flags = GFP_NOFS;
 
 	retry_encrypt:

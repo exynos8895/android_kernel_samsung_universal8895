@@ -26,6 +26,12 @@
 #include <asm/uaccess.h>
 #include "internal.h"
 
+#ifdef CONFIG_KEYS_SUPPORT_STLOG
+#include <linux/fslog.h>
+#else
+#define ST_LOG(fmt,...)
+#endif
+
 #define KEY_MAX_DESC_SIZE 4096
 
 static int key_get_type_from_user(char *type,
@@ -132,6 +138,13 @@ SYSCALL_DEFINE5(add_key, const char __user *, _type,
 	else {
 		ret = PTR_ERR(key_ref);
 	}
+
+	ST_LOG("<keyctl> add_key %s(%ld). type: %s, desc: %s\n",
+		(ret < 0)? "failed":"succeeded", (ret < 0)? ret:0, type,
+		description? description:"null");
+	printk(KERN_ERR "<keyctl> add_key %s(%ld). type: %s, desc: %s\n",
+		(ret < 0)? "failed":"succeeded", (ret < 0)? ret:0, type,
+		description? description:"null");
 
 	key_ref_put(keyring_ref);
  error3:

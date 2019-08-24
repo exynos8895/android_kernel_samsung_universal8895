@@ -44,8 +44,14 @@ enum ion_heap_type {
 			       * must be last so device specific heaps always
 			       * are at the end of this enum
 			       */
+	ION_HEAP_TYPE_CUSTOM2,
 	ION_NUM_HEAPS = 16,
 };
+/* Exynos specific ION heap types */
+#define ION_HEAP_TYPE_HPA	ION_HEAP_TYPE_CUSTOM
+
+/* Samsung specific ION heap types */
+#define ION_HEAP_TYPE_RBIN	ION_HEAP_TYPE_CUSTOM2
 
 #define ION_HEAP_SYSTEM_MASK		(1 << ION_HEAP_TYPE_SYSTEM)
 #define ION_HEAP_SYSTEM_CONTIG_MASK	(1 << ION_HEAP_TYPE_SYSTEM_CONTIG)
@@ -58,19 +64,25 @@ enum ion_heap_type {
  * allocation flags - the lower 16 bits are used by core ion, the upper 16
  * bits are reserved for use by the heaps themselves.
  */
-#define ION_FLAG_CACHED 1		/*
-					 * mappings of this buffer should be
-					 * cached, ion will do cache
-					 * maintenance when the buffer is
-					 * mapped for dma
-					*/
-#define ION_FLAG_CACHED_NEEDS_SYNC 2	/*
-					 * mappings of this buffer will created
-					 * at mmap time, if this is set
-					 * caches must be managed
-					 * manually
+#define ION_FLAG_CACHED 1		/* mappings of this buffer should be
+					   cached, ion will do cache
+					   maintenance when the buffer is
+					   mapped for dma */
+#define ION_FLAG_CACHED_NEEDS_SYNC 2	/* mappings of this buffer will created
+					   at mmap time, if this is set
+					   caches must be managed manually */
+#define ION_FLAG_NOZEROED 8		/* Allocated buffer is not initialized
+					   with zero value and userspace is not
+					   able to access the buffer
 					 */
-
+#define ION_FLAG_PROTECTED 16		/* this buffer would be used in secure
+					   world. if this is set, all cpu accesses
+					   are prohibited.
+					 */
+#define ION_FLAG_SYNC_FORCE 32		/* cache sync forcely at allocation */
+#define ION_FLAG_MAY_HWRENDER 64	/* buffer is cachable but it can be
+					accessd by H/W on both sharable domain, non-sharable domain,
+					so it sholud flush the cache before sharable domain accesses */
 /**
  * DOC: Ion Userspace API
  *
@@ -113,6 +125,13 @@ struct ion_fd_data {
 	int fd;
 };
 
+struct ion_fd_partial_data {
+	ion_user_handle_t handle;
+	int fd;
+	off_t offset;
+	size_t len;
+};
+
 /**
  * struct ion_handle_data - a handle passed to/from the kernel
  * @handle:	a handle
@@ -132,6 +151,27 @@ struct ion_handle_data {
 struct ion_custom_data {
 	unsigned int cmd;
 	unsigned long arg;
+};
+
+/**
+ * struct ion_preload_data - metadata for preload buffers
+ * @heap_id_mask:	mask of heap ids to allocate from
+ * @len:		size of the allocation
+ * @flags:		flags passed to heap
+ * @count:		number of buffers of the allocation
+ *
+ * Provided by userspace as an argument to the ioctl
+ */
+struct ion_preload_object {
+	size_t len;
+	unsigned int count;
+};
+
+struct ion_preload_data {
+	unsigned int heap_id_mask;
+	unsigned int flags;
+	unsigned int count;
+	struct ion_preload_object *obj;
 };
 
 #define ION_IOC_MAGIC		'I'
@@ -191,6 +231,12 @@ struct ion_custom_data {
  * this will make the buffer in memory coherent.
  */
 #define ION_IOC_SYNC		_IOWR(ION_IOC_MAGIC, 7, struct ion_fd_data)
+#define ION_IOC_SYNC_PARTIAL	_IOWR(ION_IOC_MAGIC, 9, struct ion_fd_partial_data)
+
+/**
+ * DOC: ION_IOC_PRELOAD_ALLOC - prefetches pages to page pool
+ */
+#define ION_IOC_PRELOAD_ALLOC	_IOW(ION_IOC_MAGIC, 8, struct ion_preload_data)
 
 /**
  * DOC: ION_IOC_CUSTOM - call architecture specific ion ioctl

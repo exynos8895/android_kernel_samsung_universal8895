@@ -48,6 +48,11 @@ void __ablkcipher_walk_complete(struct ablkcipher_walk *walk)
 {
 	struct ablkcipher_buffer *p, *tmp;
 
+#ifdef CONFIG_CRYPTO_FIPS
+	if (unlikely(in_fips_err()))
+		return;
+#endif
+
 	list_for_each_entry_safe(p, tmp, &walk->buffers, entry) {
 		ablkcipher_buffer_write(p);
 		list_del(&p->entry);
@@ -69,7 +74,6 @@ static inline void ablkcipher_queue_write(struct ablkcipher_walk *walk,
 static inline u8 *ablkcipher_get_spot(u8 *start, unsigned int len)
 {
 	u8 *end_page = (u8 *)(((unsigned long)(start + len - 1)) & PAGE_MASK);
-
 	return max(start, end_page);
 }
 
@@ -110,6 +114,11 @@ int ablkcipher_walk_done(struct ablkcipher_request *req,
 {
 	struct crypto_tfm *tfm = req->base.tfm;
 	unsigned int nbytes = 0;
+
+#ifdef CONFIG_CRYPTO_FIPS
+	if (unlikely(in_fips_err()))
+		return -EACCES;
+#endif
 
 	if (likely(err >= 0)) {
 		unsigned int n = walk->nbytes - err;
@@ -285,7 +294,6 @@ static int ablkcipher_walk_first(struct ablkcipher_request *req,
 	walk->iv_buffer = NULL;
 	if (unlikely(((unsigned long)walk->iv & alignmask))) {
 		int err = ablkcipher_copy_iv(walk, tfm, alignmask);
-
 		if (err)
 			return err;
 	}
@@ -664,6 +672,11 @@ int crypto_grab_skcipher(struct crypto_skcipher_spawn *spawn, const char *name,
 {
 	struct crypto_alg *alg;
 	int err;
+
+#ifdef CONFIG_CRYPTO_FIPS
+	if (unlikely(in_fips_err()))
+		return -EACCES;
+#endif
 
 	type = crypto_skcipher_type(type);
 	mask = crypto_skcipher_mask(mask);

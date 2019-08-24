@@ -25,6 +25,8 @@ struct dwc3_platform_data {
 	enum usb_dr_mode dr_mode;
 	bool tx_fifo_resize;
 	bool usb3_lpm_capable;
+	bool sparse_transfer_control;
+	bool is_not_vbus_pad;
 
 	unsigned is_utmi_l1_suspend:1;
 	u8 hird_threshold;
@@ -47,7 +49,11 @@ struct dwc3_platform_data {
 	unsigned tx_de_emphasis_quirk:1;
 	unsigned tx_de_emphasis:2;
 
+	unsigned adj_sof_accuracy:1;
+
 	u32 fladj_value;
+
+	u32 suspend_clk_freq;
 
 	const char *hsphy_interface;
 };

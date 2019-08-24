@@ -70,7 +70,11 @@
  *   - MS-Windows drivers sometimes emit undocumented requests.
  */
 
+#ifdef CONFIG_USB_RNDIS_MULTIPACKET
+static unsigned int rndis_dl_max_pkt_per_xfer = 10;
+#else
 static unsigned int rndis_dl_max_pkt_per_xfer = 3;
+#endif
 module_param(rndis_dl_max_pkt_per_xfer, uint, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(rndis_dl_max_pkt_per_xfer,
 	"Maximum packets per transfer for DL aggregation");
@@ -127,9 +131,9 @@ static struct usb_interface_descriptor rndis_control_intf = {
 	/* .bInterfaceNumber = DYNAMIC */
 	/* status endpoint is optional; this could be patched later */
 	.bNumEndpoints =	1,
-	.bInterfaceClass =	USB_CLASS_COMM,
-	.bInterfaceSubClass =   USB_CDC_SUBCLASS_ACM,
-	.bInterfaceProtocol =   USB_CDC_ACM_PROTO_VENDOR,
+	.bInterfaceClass =	USB_CLASS_WIRELESS_CONTROLLER,
+	.bInterfaceSubClass =	0x01,
+	.bInterfaceProtocol =	0x03,
 	/* .iInterface = DYNAMIC */
 };
 
@@ -188,9 +192,9 @@ rndis_iad_descriptor = {
 
 	.bFirstInterface =	0, /* XXX, hardcoded */
 	.bInterfaceCount = 	2,	// control + data
-	.bFunctionClass =	USB_CLASS_COMM,
-	.bFunctionSubClass =	USB_CDC_SUBCLASS_ETHERNET,
-	.bFunctionProtocol =	USB_CDC_PROTO_NONE,
+	.bFunctionClass =		USB_CLASS_WIRELESS_CONTROLLER,
+	.bFunctionSubClass =	0x01,
+	.bFunctionProtocol =	0x03,
 	/* .iFunction = DYNAMIC */
 };
 
@@ -775,6 +779,12 @@ rndis_bind(struct usb_configuration *c, struct usb_function *f)
 		goto fail;
 	rndis->port.out_ep = ep;
 
+	/* request rndis queue */
+	status = gether_alloc_request(&rndis->port);
+	printk("usb:%s :  rndis queue reqsest ret = %d \n",__func__, status);
+	if (status < 0)
+		goto fail;
+
 	/* NOTE:  a status/notification endpoint is, strictly speaking,
 	 * optional.  We don't treat it that way though!  It's simpler,
 	 * and some newer profiles don't treat it as optional.
@@ -870,6 +880,22 @@ void rndis_borrow_net(struct usb_function_instance *f, struct net_device *net)
 }
 EXPORT_SYMBOL_GPL(rndis_borrow_net);
 
+#ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
+static int set_rndis_mac_addr(struct usb_function_instance *fi,
+		    u8 * ethaddr)
+{
+	struct f_rndis_opts *opts;
+	u8 mac_addr[ETH_ALEN*2+6] = {0,};
+
+	opts = container_of(fi, struct f_rndis_opts, func_inst);
+	snprintf(mac_addr, sizeof(mac_addr), "%pM", ethaddr);
+
+	gether_set_host_addr(opts->net, mac_addr);
+
+	return 0;
+}
+#endif
+
 static inline struct f_rndis_opts *to_f_rndis_opts(struct config_item *item)
 {
 	return container_of(to_config_group(item), struct f_rndis_opts,
@@ -934,7 +960,10 @@ static struct usb_function_instance *rndis_alloc_inst(void)
 
 	mutex_init(&opts->lock);
 	opts->func_inst.free_func_inst = rndis_free_inst;
-	opts->net = gether_setup_default();
+#ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
+	opts->func_inst.set_inst_eth_addr = set_rndis_mac_addr;
+#endif
+	opts->net = gether_setup_name_default("rndis");
 	if (IS_ERR(opts->net)) {
 		struct net_device *net = opts->net;
 		kfree(opts);
@@ -969,6 +998,10 @@ static void rndis_free(struct usb_function *f)
 static void rndis_unbind(struct usb_configuration *c, struct usb_function *f)
 {
 	struct f_rndis		*rndis = func_to_rndis(f);
+#ifdef CONFIG_USB_CONFIGFS_UEVENT
+	struct f_rndis_opts	*opts;
+	struct usb_composite_dev *cdev = f->config->cdev;
+#endif
 
 	kfree(f->os_desc_table);
 	f->os_desc_n = 0;
@@ -976,6 +1009,31 @@ static void rndis_unbind(struct usb_configuration *c, struct usb_function *f)
 
 	kfree(rndis->notify_req->buf);
 	usb_ep_free_request(rndis->notify, rndis->notify_req);
+
+	gether_free_request(&rndis->port);
+
+#ifdef CONFIG_USB_CONFIGFS_UEVENT
+	opts = container_of(f->fi, struct f_rndis_opts, func_inst);
+	if (!opts->borrowed_net) {
+		if (opts->bound)
+			gether_cleanup(netdev_priv(opts->net));
+		else
+			free_netdev(opts->net);
+	}
+
+	opts->net = gether_setup_name_default("rndis");
+	if (IS_ERR(opts->net)) {
+		ERROR(cdev, "%s: failed to setup ethernet\n", f->name);
+		return;
+	}
+#ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
+	gether_set_host_addr(opts->net, rndis->ethaddr);
+#else
+	gether_get_host_addr_u8(opts->net, rndis->ethaddr);
+#endif
+	rndis->port.ioport = netdev_priv(opts->net);
+	opts->bound = false;
+#endif
 }
 
 static struct usb_function *rndis_alloc(struct usb_function_instance *fi)
@@ -994,6 +1052,7 @@ static struct usb_function *rndis_alloc(struct usb_function_instance *fi)
 	opts->refcnt++;
 
 	gether_get_host_addr_u8(opts->net, rndis->ethaddr);
+	
 	rndis->vendorID = opts->vendor_id;
 	rndis->manufacturer = opts->manufacturer;
 

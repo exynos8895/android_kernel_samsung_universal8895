@@ -12,7 +12,14 @@
  * published by the Free Software Foundation.
 */
 
-#include <linux/dmaengine.h>
+#include <linux/pm_qos.h>
+
+#define S3C24XX_UART_PORT_RESUME		0x0
+#define S3C24XX_UART_PORT_SUSPEND		0x3
+#define S3C24XX_UART_PORT_LPM			0x5
+
+#define S3C24XX_SERIAL_CTRL_NUM			0x4
+#define S3C24XX_SERIAL_BUAD_NUM			0x2
 
 struct s3c24xx_uart_info {
 	char			*name;
@@ -43,68 +50,53 @@ struct s3c24xx_serial_drv_data {
 	unsigned int			fifosize[CONFIG_SERIAL_SAMSUNG_UARTS];
 };
 
-struct s3c24xx_uart_dma {
-	dma_filter_fn			fn;
-	void				*rx_param;
-	void				*tx_param;
-
-	unsigned int			rx_chan_id;
-	unsigned int			tx_chan_id;
-
-	struct dma_slave_config		rx_conf;
-	struct dma_slave_config		tx_conf;
-
-	struct dma_chan			*rx_chan;
-	struct dma_chan			*tx_chan;
-
-	dma_addr_t			rx_addr;
-	dma_addr_t			tx_addr;
-
-	dma_cookie_t			rx_cookie;
-	dma_cookie_t			tx_cookie;
-
-	char				*rx_buf;
-
-	dma_addr_t			tx_transfer_addr;
-
-	size_t				rx_size;
-	size_t				tx_size;
-
-	struct dma_async_tx_descriptor	*tx_desc;
-	struct dma_async_tx_descriptor	*rx_desc;
-
-	int				tx_bytes_requested;
-	int				rx_bytes_requested;
+struct uart_local_buf {
+	unsigned char *buffer;
+	unsigned int size;
+	unsigned int index;
 };
 
 struct s3c24xx_uart_port {
+	struct list_head		node;
 	unsigned char			rx_claimed;
 	unsigned char			tx_claimed;
-	unsigned int			pm_level;
 	unsigned long			baudclk_rate;
-	unsigned int			min_dma_size;
 
 	unsigned int			rx_irq;
 	unsigned int			tx_irq;
 
-	unsigned int			tx_in_progress;
-	unsigned int			tx_mode;
-	unsigned int			rx_mode;
-
+	int				check_separated_clk;
 	struct s3c24xx_uart_info	*info;
 	struct clk			*clk;
+	struct clk			*separated_clk;
 	struct clk			*baudclk;
 	struct uart_port		port;
 	struct s3c24xx_serial_drv_data	*drv_data;
 
+	u32				uart_irq_affinity;
+	s32				mif_qos_val;
+	s32				cpu_qos_val;
+	u32				use_default_irq;
+	unsigned long			qos_timeout;
+
+#define DOMAIN_TOP	0
+#define DOMAIN_AUD	1
+	u32				domain;
+
 	/* reference to platform data */
 	struct s3c2410_uartcfg		*cfg;
 
-	struct s3c24xx_uart_dma		*dma;
+	struct platform_device		*pdev;
 
-#ifdef CONFIG_CPU_FREQ
-	struct notifier_block		freq_transition;
-#endif
+	struct pm_qos_request		s3c24xx_uart_mif_qos;
+	struct pm_qos_request		s3c24xx_uart_cpu_qos;
+	struct delayed_work		qos_work;
+
+	unsigned int			in_band_wakeup;
+	unsigned int dbg_mode;
+
+	unsigned int			uart_logging;
+	struct uart_local_buf		uart_local_buf;
 };
 
 /* conversion functions */

@@ -147,18 +147,18 @@ static inline void task_state(struct seq_file *m, struct pid_namespace *ns,
 	int g;
 	struct task_struct *tracer;
 	const struct cred *cred;
-	pid_t ppid, tpid = 0, tgid, ngid;
+	pid_t ppid = 0, tpid = 0, tgid = 0, ngid;
 	unsigned int max_fds = 0;
 
 	rcu_read_lock();
-	ppid = pid_alive(p) ?
-		task_tgid_nr_ns(rcu_dereference(p->real_parent), ns) : 0;
+	if (pid_alive(p)) {
+		tracer = ptrace_parent(p);
+		if (tracer)
+			tpid = task_pid_nr_ns(tracer, ns);
 
-	tracer = ptrace_parent(p);
-	if (tracer)
-		tpid = task_pid_nr_ns(tracer, ns);
-
-	tgid = task_tgid_nr_ns(p, ns);
+		ppid = task_tgid_nr_ns(rcu_dereference(p->real_parent), ns);
+		tgid = task_tgid_nr_ns(p, ns);
+	}
 	ngid = task_numa_group_id(p);
 	cred = get_task_cred(p);
 
@@ -591,7 +591,31 @@ int proc_pid_statm(struct seq_file *m, struct pid_namespace *ns,
 
 	return 0;
 }
+int proc_pid_statlmkd(struct seq_file *m, struct pid_namespace *ns,
+			struct pid *pid, struct task_struct *task)
+{
+	struct mm_struct *mm = get_task_mm(task);
+#ifdef CONFIG_MMU
+	unsigned long size = 0, resident = 0, swapresident = 0;
+	if (mm) {
+		task_statlmkd(mm, &size, &resident, &swapresident);
+		mmput(mm);
+	}
+#endif
+#ifndef CONFIG_MMU
+	unsigned long size = 0, resident = 0, shared = 0, text = 0, data = 0;
+	if (mm) {
+		size = task_statm(mm, &shared, &text, &data, &resident);
+		mmput(mm);
+	}
+#endif
+	seq_put_decimal_ull(m, 0, size);
+	seq_put_decimal_ull(m, ' ', resident);
+	seq_put_decimal_ull(m, ' ', swapresident);
+	seq_putc(m, '\n');
 
+	return 0;
+}
 #ifdef CONFIG_PROC_CHILDREN
 static struct pid *
 get_children_pid(struct inode *inode, struct pid *pid_prev, loff_t pos)

@@ -23,12 +23,21 @@
 #include <linux/rcupdate.h>
 #include <linux/workqueue.h>
 
+#if defined(CONFIG_SEC_FD_DETECT)
+extern void save_open_close_fdinfo(int fd, int flag, struct task_struct *cur, struct files_struct *files);
+extern void check_fd_invalid_close(int fd, struct task_struct *cur, struct files_struct *files, struct file *file);
+#endif // END CONFIG_SEC_FD_DETECT
+
 int sysctl_nr_open __read_mostly = 1024*1024;
 int sysctl_nr_open_min = BITS_PER_LONG;
 /* our max() is unusable in constant expressions ;-/ */
 #define __const_max(x, y) ((x) < (y) ? (x) : (y))
 int sysctl_nr_open_max = __const_max(INT_MAX, ~(size_t)0/sizeof(void *)) &
 			 -BITS_PER_LONG;
+
+#ifdef CONFIG_SEC_DEBUG_FILE_LEAK
+extern void	sec_debug_EMFILE_error_proc(unsigned long files_addr);
+#endif
 
 static void *alloc_fdmem(size_t size)
 {
@@ -174,8 +183,11 @@ static int expand_fdtable(struct files_struct *files, int nr)
 	/* make sure all __fd_install() have seen resize_in_progress
 	 * or have finished their rcu_read_lock_sched() section.
 	 */
-	if (atomic_read(&files->count) > 1)
+	if (atomic_read(&files->count) > 1) {
+		rcu_expedite_gp();
 		synchronize_sched();
+		rcu_unexpedite_gp();
+	}
 
 	spin_lock(&files->file_lock);
 	if (!new_fdt)
@@ -185,6 +197,9 @@ static int expand_fdtable(struct files_struct *files, int nr)
 	 * caller and alloc_fdtable().  Cheaper to catch it here...
 	 */
 	if (unlikely(new_fdt->max_fds <= nr)) {
+#ifdef CONFIG_SEC_DEBUG_FILE_LEAK
+		sec_debug_EMFILE_error_proc((unsigned long)files);
+#endif
 		__free_fdtable(new_fdt);
 		return -EMFILE;
 	}
@@ -222,8 +237,12 @@ repeat:
 		return expanded;
 
 	/* Can we expand? */
-	if (nr >= sysctl_nr_open)
+	if (nr >= sysctl_nr_open) {
+#ifdef CONFIG_SEC_DEBUG_FILE_LEAK
+		sec_debug_EMFILE_error_proc((unsigned long)files);
+#endif
 		return -EMFILE;
+	}
 
 	if (unlikely(files->resize_in_progress)) {
 		spin_unlock(&files->file_lock);
@@ -332,6 +351,9 @@ struct files_struct *dup_fd(struct files_struct *oldf, int *errorp)
 
 		/* beyond sysctl_nr_open; nothing to do */
 		if (unlikely(new_fdt->max_fds < open_files)) {
+#ifdef CONFIG_SEC_DEBUG_FILE_LEAK
+			sec_debug_EMFILE_error_proc((unsigned long)oldf);
+#endif
 			__free_fdtable(new_fdt);
 			*errorp = -EMFILE;
 			goto out_release;
@@ -474,6 +496,7 @@ struct files_struct init_files = {
 		.full_fds_bits	= init_files.full_fds_bits_init,
 	},
 	.file_lock	= __SPIN_LOCK_UNLOCKED(init_files.file_lock),
+	.resize_wait    = __WAIT_QUEUE_HEAD_INITIALIZER(init_files.resize_wait),
 };
 
 static unsigned long find_next_fd(struct fdtable *fdt, unsigned long start)
@@ -515,8 +538,12 @@ repeat:
 	 * will limit the total number of files that can be opened.
 	 */
 	error = -EMFILE;
-	if (fd >= end)
+	if (fd >= end) {
+#ifdef CONFIG_SEC_DEBUG_FILE_LEAK
+		sec_debug_EMFILE_error_proc((unsigned long)files);
+#endif
 		goto out;
+	}
 
 	error = expand_files(files, fd);
 	if (error < 0)
@@ -618,6 +645,10 @@ void __fd_install(struct files_struct *files, unsigned int fd,
 	fdt = rcu_dereference_sched(files->fdt);
 	BUG_ON(fdt->fd[fd] != NULL);
 	rcu_assign_pointer(fdt->fd[fd], file);
+
+#if defined(CONFIG_SEC_FD_DETECT)
+	save_open_close_fdinfo(fd, true, current, files);
+#endif // END CONFIG_SEC_FD_DETECT
 	rcu_read_unlock_sched();
 }
 
@@ -643,6 +674,12 @@ int __close_fd(struct files_struct *files, unsigned fd)
 	file = fdt->fd[fd];
 	if (!file)
 		goto out_unlock;
+
+#if defined(CONFIG_SEC_FD_DETECT)
+	check_fd_invalid_close(fd, current, files, file);
+	save_open_close_fdinfo(fd, false, current, files);
+#endif // END CONFIG_SEC_FD_DETECT
+
 	rcu_assign_pointer(fdt->fd[fd], NULL);
 	__clear_close_on_exec(fd, fdt);
 	__put_unused_fd(files, fd);
@@ -892,8 +929,12 @@ SYSCALL_DEFINE3(dup3, unsigned int, oldfd, unsigned int, newfd, int, flags)
 	if (unlikely(oldfd == newfd))
 		return -EINVAL;
 
-	if (newfd >= rlimit(RLIMIT_NOFILE))
+	if (newfd >= rlimit(RLIMIT_NOFILE)) {
+#ifdef CONFIG_SEC_DEBUG_FILE_LEAK
+ 		sec_debug_EMFILE_error_proc((unsigned long)files);
+#endif
 		return -EBADF;
+	}
 
 	spin_lock(&files->file_lock);
 	err = expand_files(files, newfd);

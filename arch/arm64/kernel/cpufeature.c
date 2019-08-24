@@ -30,6 +30,10 @@
 #include <asm/processor.h>
 #include <asm/sysreg.h>
 
+#define MIDR_MONGOOSE	MIDR_CPU_MODEL(ARM_CPU_IMP_SEC, ARM_CPU_PART_MONGOOSE)
+#define MIDR_MODEL_MASK	(MIDR_IMPLEMENTOR_MASK | MIDR_PARTNUM_MASK | \
+			MIDR_ARCHITECTURE_MASK)
+
 unsigned long elf_hwcap __read_mostly;
 EXPORT_SYMBOL_GPL(elf_hwcap);
 
@@ -485,6 +489,15 @@ void update_cpu_features(int cpu,
 	int taint = 0;
 
 	/*
+	 * In Exynos SOC, the sanity check for customized cores is meaningless
+	 * because it consists of non-arm CPUs.
+	 */
+	u32 midr = read_cpuid_id();
+
+	if ((midr & MIDR_MODEL_MASK) == MIDR_MONGOOSE)
+		return;
+
+	/*
 	 * The kernel can handle differing I-cache policies, but otherwise
 	 * caches should look identical. Userspace JITs will make use of
 	 * *minLine.
@@ -663,7 +676,7 @@ static bool unmap_kernel_at_el0(const struct arm64_cpu_capabilities *entry)
 	}
 
 	/* Useful for KASLR robustness */
-	if (IS_ENABLED(CONFIG_RANDOMIZE_BASE))
+	if (IS_ENABLED(CONFIG_RANDOMIZE_BASE) || IS_ENABLED(CONFIG_RELOCATABLE_KERNEL))
 		return true;
 
 	return false;

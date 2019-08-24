@@ -46,6 +46,10 @@
 #include <linux/bug.h>
 #include <linux/sched.h>
 
+#ifdef CONFIG_SEC_DEBUG
+#include <linux/sec_debug.h>
+#endif
+
 extern const struct bug_entry __start___bug_table[], __stop___bug_table[];
 
 static inline unsigned long bug_addr(const struct bug_entry *bug)
@@ -176,7 +180,6 @@ enum bug_trap_type report_bug(unsigned long bugaddr, struct pt_regs *regs)
 				(void *)bugaddr);
 
 		print_modules();
-		show_regs(regs);
 		print_oops_end_marker();
 		/* Just a warning, don't kill lockdep. */
 		add_taint(BUG_GET_TAINT(bug), LOCKDEP_STILL_OK);
@@ -185,10 +188,15 @@ enum bug_trap_type report_bug(unsigned long bugaddr, struct pt_regs *regs)
 
 	printk(KERN_DEFAULT "------------[ cut here ]------------\n");
 
+#ifdef CONFIG_SEC_DEBUG_EXTRA_INFO
 	if (file)
-		pr_crit("kernel BUG at %s:%u!\n", file, line);
+		sec_debug_set_extra_info_bug(file, line);
+#endif
+
+	if (file)
+		pr_auto(ASL1, "kernel BUG at %s:%u!\n", file, line);
 	else
-		pr_crit("Kernel BUG at %p [verbose debug info unavailable]\n",
+		pr_auto(ASL1, "Kernel BUG at %p [verbose debug info unavailable]\n",
 			(void *)bugaddr);
 
 	return BUG_TRAP_TYPE_BUG;

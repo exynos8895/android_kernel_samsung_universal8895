@@ -39,8 +39,6 @@ extern unsigned int sysctl_sched_latency;
 extern unsigned int sysctl_sched_min_granularity;
 extern unsigned int sysctl_sched_wakeup_granularity;
 extern unsigned int sysctl_sched_child_runs_first;
-extern unsigned int sysctl_sched_sync_hint_enable;
-extern unsigned int sysctl_sched_cstate_aware;
 #ifdef CONFIG_SCHED_WALT
 extern unsigned int sysctl_sched_use_walt_cpu_util;
 extern unsigned int sysctl_sched_use_walt_task_util;
@@ -103,6 +101,9 @@ static inline unsigned int get_sysctl_sched_cfs_boost(void)
 
 #ifdef CONFIG_SCHED_AUTOGROUP
 extern unsigned int sysctl_sched_autogroup_enabled;
+#endif
+#ifdef CONFIG_SCHED_USE_FLUID_RT
+extern unsigned int sysctl_sched_restrict_cluster_spill;
 #endif
 
 extern int sched_rr_timeslice;

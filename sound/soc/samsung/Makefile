@@ -1,4 +1,5 @@
 # S3c24XX Platform Support
+snd-soc-s3c24xx-objs := dma.o
 snd-soc-s3c-dma-objs := dmaengine.o
 snd-soc-idma-objs := idma.o
 snd-soc-s3c24xx-i2s-objs := s3c24xx-i2s.o
@@ -8,8 +9,19 @@ snd-soc-s3c-i2s-v2-objs := s3c-i2s-v2.o
 snd-soc-samsung-spdif-objs := spdif.o
 snd-soc-pcm-objs := pcm.o
 snd-soc-i2s-objs := i2s.o
+snd-soc-lpass-objs := lpass.o
+snd-soc-compr-objs := compr.o visualizercap-dummydai.o
+snd-soc-eax-dai-objs := eax-dai.o
+ifeq ($(CONFIG_SND_SOC_EAX_NONE_KMIXING),y)
+snd-soc-eax-dma-objs := eax-dma-v2.o
+else
+snd-soc-eax-dma-objs := eax-dma.o
+endif
+snd-soc-eax-slowpath-objs := eax-dai-slowpath.o eax-dma-slowpath.o
+snd-soc-esa-sa-effect-objs := esa_sa_effect.o
+snd-soc-dp_dma-objs := dp_dma.o
 
-obj-$(CONFIG_SND_SOC_SAMSUNG) += snd-soc-s3c-dma.o
+obj-$(CONFIG_SND_SOC_SAMSUNG) += snd-soc-s3c24xx.o
 obj-$(CONFIG_SND_S3C24XX_I2S) += snd-soc-s3c24xx-i2s.o
 obj-$(CONFIG_SND_SAMSUNG_AC97) += snd-soc-ac97.o
 obj-$(CONFIG_SND_S3C2412_SOC_I2S) += snd-soc-s3c2412-i2s.o
@@ -18,6 +30,25 @@ obj-$(CONFIG_SND_SAMSUNG_SPDIF) += snd-soc-samsung-spdif.o
 obj-$(CONFIG_SND_SAMSUNG_PCM) += snd-soc-pcm.o
 obj-$(CONFIG_SND_SAMSUNG_I2S) += snd-soc-i2s.o
 obj-$(CONFIG_SND_SAMSUNG_I2S) += snd-soc-idma.o
+obj-$(CONFIG_EXYNOS_MIPI_DISPLAYPORT) += snd-soc-dp_dma.o
+obj-$(CONFIG_SND_SAMSUNG_AUDSS) += snd-soc-lpass.o
+obj-$(CONFIG_SND_SAMSUNG_COMPR) += snd-soc-compr.o
+ifeq ($(CONFIG_SND_SAMSUNG_AUDSS),y)
+obj-$(CONFIG_SOC_EXYNOS5422) += lpass-exynos5422.o
+obj-$(CONFIG_SOC_EXYNOS5430) += lpass-exynos5430.o
+obj-$(CONFIG_SOC_EXYNOS5433) += lpass-exynos5433.o
+obj-$(CONFIG_SOC_EXYNOS7420) += lpass-exynos7420.o
+obj-$(CONFIG_SOC_EXYNOS7580) += lpass-exynos7580.o
+obj-$(CONFIG_SOC_EXYNOS7890) += lpass-exynos7890.o
+obj-$(CONFIG_SOC_EXYNOS8890) += lpass-exynos8890.o
+endif
+obj-$(CONFIG_SND_SOC_SAMSUNG) += snd-soc-eax-dai.o snd-soc-eax-dma.o
+obj-$(CONFIG_SND_ESA_SA_EFFECT) += snd-soc-esa-sa-effect.o
+obj-$(CONFIG_SND_SOC_EAX_SLOWPATH) += snd-soc-eax-slowpath.o
+
+obj-$(CONFIG_SND_SAMSUNG_SEIREN) += seiren/
+obj-$(CONFIG_SND_SOC_SAMSUNG_VTS) += vts/
+obj-$(CONFIG_SND_SOC_SAMSUNG_ABOX) += abox/
 
 # S3C24XX Machine Support
 snd-soc-jive-wm8750-objs := jive_wm8750.o
@@ -35,6 +66,7 @@ snd-soc-smdk-wm8994-objs := smdk_wm8994.o
 snd-soc-snow-objs := snow.o
 snd-soc-smdk-wm9713-objs := smdk_wm9713.o
 snd-soc-s3c64xx-smartq-wm8987-objs := smartq_wm8987.o
+snd-soc-goni-wm8994-objs := goni_wm8994.o
 snd-soc-smdk-spdif-objs := smdk_spdif.o
 snd-soc-smdk-wm8580pcm-objs := smdk_wm8580pcm.o
 snd-soc-smdk-wm8994pcm-objs := smdk_wm8994pcm.o
@@ -44,7 +76,11 @@ snd-soc-lowland-objs := lowland.o
 snd-soc-littlemill-objs := littlemill.o
 snd-soc-bells-objs := bells.o
 snd-soc-odroidx2-max98090-objs := odroidx2_max98090.o
-snd-soc-arndale-rt5631-objs := arndale_rt5631.o
+snd-soc-universal8890-dummy-objs := universal8890_dummy.o
+snd-soc-espresso8890-wm5110-objs := cp_dummy.o espresso8890_wm5110.o
+snd-soc-pacific-arizona-objs := pacific_arizona_318.o
+snd-soc-lucky-arizona-objs := lucky_arizona_lsi.o
+snd-soc-espresso8890-clearwater-objs := cp_dummy.o espresso8890_wm1840.o
 
 obj-$(CONFIG_SND_SOC_SAMSUNG_JIVE_WM8750) += snd-soc-jive-wm8750.o
 obj-$(CONFIG_SND_SOC_SAMSUNG_NEO1973_WM8753) += snd-soc-neo1973-wm8753.o
@@ -62,6 +98,7 @@ obj-$(CONFIG_SND_SOC_SNOW) += snd-soc-snow.o
 obj-$(CONFIG_SND_SOC_SAMSUNG_SMDK_WM9713) += snd-soc-smdk-wm9713.o
 obj-$(CONFIG_SND_SOC_SMARTQ) += snd-soc-s3c64xx-smartq-wm8987.o
 obj-$(CONFIG_SND_SOC_SAMSUNG_SMDK_SPDIF) += snd-soc-smdk-spdif.o
+obj-$(CONFIG_SND_SOC_GONI_AQUILA_WM8994) += snd-soc-goni-wm8994.o
 obj-$(CONFIG_SND_SOC_SMDK_WM8580_PCM) += snd-soc-smdk-wm8580pcm.o
 obj-$(CONFIG_SND_SOC_SMDK_WM8994_PCM) += snd-soc-smdk-wm8994pcm.o
 obj-$(CONFIG_SND_SOC_SPEYSIDE) += snd-soc-speyside.o
@@ -70,4 +107,12 @@ obj-$(CONFIG_SND_SOC_LOWLAND) += snd-soc-lowland.o
 obj-$(CONFIG_SND_SOC_LITTLEMILL) += snd-soc-littlemill.o
 obj-$(CONFIG_SND_SOC_BELLS) += snd-soc-bells.o
 obj-$(CONFIG_SND_SOC_ODROIDX2) += snd-soc-odroidx2-max98090.o
-obj-$(CONFIG_SND_SOC_ARNDALE_RT5631_ALC5631) += snd-soc-arndale-rt5631.o
+obj-$(CONFIG_SND_SOC_SAMSUNG_ESPRESSO8890_WM5110) += snd-soc-espresso8890-wm5110.o
+obj-$(CONFIG_SND_SOC_SAMSUNG_UNIVERSAL8890_DUMMY) += snd-soc-universal8890-dummy.o
+obj-$(CONFIG_SND_SOC_SAMSUNG_ZERO_CLEARWATER) += snd-soc-pacific-arizona.o
+obj-$(CONFIG_SND_SOC_SAMSUNG_LUCKY_MOON) += snd-soc-lucky-arizona.o
+obj-$(CONFIG_SND_SOC_SAMSUNG_ESPRESSO8890_CLEARWATER) += snd-soc-espresso8890-clearwater.o
+obj-$(CONFIG_SND_SOC_SAMSUNG_EXYNOS8895_MOON) += exynos8895_madera.o
+obj-$(CONFIG_SND_SOC_SAMSUNG_EXYNOS8895_ASHETON) += dream_madera.o jack_madera_sysfs_cb.o
+obj-$(CONFIG_SND_SOC_SAMSUNG_EXYNOS8895_COD3033) += exynos8895_sound.o
+obj-$(CONFIG_SND_SOC_SAMSUNG_AUDIO) += sec_audio_debug.o sec_audio_sysfs.o

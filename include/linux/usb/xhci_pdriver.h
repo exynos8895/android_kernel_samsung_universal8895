@@ -13,6 +13,13 @@
 #ifndef __USB_CORE_XHCI_PDRIVER_H
 #define __USB_CORE_XHCI_PDRIVER_H
 
+struct usb_xhci_pre_alloc {
+	u8 *pre_dma_alloc;
+	u64 offset;
+
+	dma_addr_t	dma;
+};
+
 /**
  * struct usb_xhci_pdata - platform_data for generic xhci platform driver
  *
@@ -22,6 +29,8 @@
  */
 struct usb_xhci_pdata {
 	unsigned	usb3_lpm_capable:1;
+
+	struct usb_xhci_pre_alloc xhci_alloc;
 };
 
 #endif /* __USB_CORE_XHCI_PDRIVER_H */

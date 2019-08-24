@@ -104,4 +104,18 @@ config USB_DWC3_QCOM
 	  Recent Qualcomm SoCs ship with one DesignWare Core USB3 IP inside,
 	  say 'Y' or 'M' if you have one such device.
 
+
+config DWC3_HOST_USB3_LPM_ENABLE
+	bool "Enable USB3 LPM Capability"
+	depends on USB_DWC3_HOST=y || USB_DWC3_DUAL_ROLE=y
+	default n
+	help
+	  Select this when you want to enable USB3 LPM with dwc3 xhci host.
+
+config USB_ANDROID_SAMSUNG_DISABLE_U1_U2
+	bool "Disable U1/U2 state"
+	depends on USB_DWC3_GADGET=y || USB_DWC3_DUAL_ROLE=y
+	default n
+	help
+	  Select this when you want to disable U1/U2 state in USB 3.0
 endif

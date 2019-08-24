@@ -42,6 +42,12 @@
 #define DBG_ESR_EVT_HWWP	0x2
 #define DBG_ESR_EVT_BRK		0x6
 
+/* OSLSR os lock status bits */
+#define AARCH64_OSLSR_OSLM0	(1 << 0)
+#define AARCH64_OSLSR_OSLK	(1 << 1)
+#define AARCH64_OSLSR_NTT	(1 << 2)
+#define AARCH64_OSLSR_OSLM1	(1 << 3)
+
 /*
  * Break point instruction encoding
  */
@@ -117,6 +123,12 @@ void user_fastforward_single_step(struct task_struct *task);
 void kernel_enable_single_step(struct pt_regs *regs);
 void kernel_disable_single_step(void);
 int kernel_active_single_step(void);
+#ifdef CONFIG_SEC_MMIOTRACE
+void check_and_clear_os_lock(void);
+#endif
+#ifdef CONFIG_SEC_KWATCHER
+void restore_debug_monitors(void);
+#endif
 
 #ifdef CONFIG_HAVE_HW_BREAKPOINT
 int reinstall_suspended_bps(struct pt_regs *regs);

@@ -389,6 +389,7 @@ static inline void dio_bio_submit(struct dio *dio, struct dio_submit *sdio)
 {
 	struct bio *bio = sdio->bio;
 	unsigned long flags;
+	struct inode *inode;
 
 	bio->bi_private = dio;
 
@@ -400,6 +401,16 @@ static inline void dio_bio_submit(struct dio *dio, struct dio_submit *sdio)
 		bio_set_pages_dirty(bio);
 
 	dio->bio_bdev = bio->bi_bdev;
+	bio->bi_dio_inode = dio->inode;
+
+	inode = dio->inode;
+
+#ifdef CONFIG_FMP_EXT4CRYPT_FS
+	bio->private_enc_mode = inode->i_mapping->private_enc_mode;
+	bio->private_algo_mode = inode->i_mapping->private_algo_mode;
+	bio->key = inode->i_mapping->key;
+	bio->key_length = inode->i_mapping->key_length;
+#endif
 
 	if (sdio->submit_io) {
 		sdio->submit_io(dio->rw, bio, dio->inode,

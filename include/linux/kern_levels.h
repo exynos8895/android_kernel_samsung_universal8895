@@ -12,8 +12,20 @@
 #define KERN_NOTICE	KERN_SOH "5"	/* normal but significant condition */
 #define KERN_INFO	KERN_SOH "6"	/* informational */
 #define KERN_DEBUG	KERN_SOH "7"	/* debug-level messages */
-
 #define KERN_DEFAULT	KERN_SOH "d"	/* the default kernel loglevel */
+
+#ifdef CONFIG_SEC_DEBUG_AUTO_SUMMARY
+#define KERN_AUTO	KERN_SOH	/* auto-summary messages */
+#define KERN_AUTO1	"B"
+#define KERN_AUTO2	"C"
+#define KERN_AUTO3	"D"
+#define KERN_AUTO4	"E"
+#define KERN_AUTO5	"F"
+#define KERN_AUTO6	"G"
+#define KERN_AUTO7	"H"
+#define KERN_AUTO8	"I"
+#define KERN_AUTO9	"J"
+#endif
 
 /*
  * Annotation for a "continued" line of log printout (only done after a
@@ -34,5 +46,9 @@
 #define LOGLEVEL_NOTICE		5	/* normal but significant condition */
 #define LOGLEVEL_INFO		6	/* informational */
 #define LOGLEVEL_DEBUG		7	/* debug-level messages */
+
+#ifdef CONFIG_SEC_DEBUG_AUTO_SUMMARY
+#define LOGLEVEL_PR_AUTO_BASE	90	/* base log level for auto summary */
+#endif
 
 #endif

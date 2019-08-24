@@ -124,12 +124,47 @@ void disable_debug_monitors(enum dbg_active_el el)
 	}
 }
 
+#ifdef CONFIG_SEC_KWATCHER
+/*
+ * restore mdscr register
+ */
+void restore_debug_monitors(void)
+{
+	u32 mdscr, enable = 0;
+
+	if (this_cpu_read(mde_ref_count) >= 1)
+		enable = DBG_MDSCR_MDE;
+
+	if (this_cpu_read(kde_ref_count) >= 1)
+		enable |= DBG_MDSCR_KDE;
+
+	if (enable && debug_enabled) {
+		mdscr = mdscr_read();
+		mdscr |= enable;
+		mdscr_write(mdscr);
+	}
+}
+#endif
+
 /*
  * OS lock clearing.
  */
 static void clear_os_lock(void *unused)
 {
 	asm volatile("msr oslar_el1, %0" : : "r" (0));
+}
+
+/*
+ * check_and_clear_os_lock : check OS lock and clear if it is locked
+ */
+void check_and_clear_os_lock(void)
+{
+	u32 oslsr_el1;
+
+	asm volatile("mrs %0, oslsr_el1":"=r"(oslsr_el1)::);
+
+	if (oslsr_el1 & AARCH64_OSLSR_OSLK)
+		clear_os_lock(NULL);
 }
 
 static int os_lock_notify(struct notifier_block *self,
