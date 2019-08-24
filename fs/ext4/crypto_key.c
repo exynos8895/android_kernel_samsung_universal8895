@@ -13,10 +13,12 @@
 #include <linux/random.h>
 #include <linux/scatterlist.h>
 #include <uapi/linux/keyctl.h>
+#include <crypto/fmp.h>
 
 #include "ext4.h"
 #include "xattr.h"
 
+#ifndef CONFIG_EXT4_SEC_CRYPTO_EXTENSION
 static void derive_crypt_complete(struct crypto_async_request *req, int rc)
 {
 	struct ext4_completion_result *ecr = req->data;
@@ -152,7 +154,7 @@ static int ext4_derive_key(const struct ext4_encryption_context *ctx,
 			   const char master_key[EXT4_MAX_KEY_SIZE],
 			   char derived_key[EXT4_MAX_KEY_SIZE])
 {
-	BUILD_BUG_ON(EXT4_AES_128_ECB_KEY_SIZE != EXT4_KEY_DERIVATION_NONCE_SIZE);
+	BUILD_BUG_ON(EXT4_ESTIMATED_NONCE_SIZE != EXT4_KEY_DERIVATION_NONCE_SIZE);
 	BUILD_BUG_ON(EXT4_AES_256_XTS_KEY_SIZE != EXT4_MAX_KEY_SIZE);
 
 	/*
@@ -167,13 +169,16 @@ static int ext4_derive_key(const struct ext4_encryption_context *ctx,
 	else
 		return ext4_derive_key_v1(ctx->nonce, master_key, derived_key);
 }
+#endif
 
 void ext4_free_crypt_info(struct ext4_crypt_info *ci)
 {
 	if (!ci)
 		return;
 
-	crypto_free_ablkcipher(ci->ci_ctfm);
+	if (!ci->private_enc_mode)
+		crypto_free_ablkcipher(ci->ci_ctfm);
+
 	kmem_cache_free(ext4_crypt_info_cachep, ci);
 }
 
@@ -192,6 +197,15 @@ void ext4_free_encryption_info(struct inode *inode,
 		return;
 
 	ext4_free_crypt_info(ci);
+}
+
+static inline int __ext4_get_fek(char *nonce, char *src_key, char *fe_key)
+{
+#ifdef CONFIG_EXT4_SEC_CRYPTO_EXTENSION
+	return ext4_sec_get_key_aes(nonce, src_key, fe_key);
+#else
+	return ext4_derive_key(nonce, src_key, fe_key);
+#endif
 }
 
 int ext4_get_encryption_info(struct inode *inode)
@@ -239,6 +253,15 @@ int ext4_get_encryption_info(struct inode *inode)
 	crypt_info->ci_flags = ctx.flags;
 	crypt_info->ci_data_mode = ctx.contents_encryption_mode;
 	crypt_info->ci_filename_mode = ctx.filenames_encryption_mode;
+#ifdef CONFIG_FMP_EXT4CRYPT_FS
+	if (ctx.filenames_encryption_mode == FMP_ENCRYPTION_MODE_AES_256_XTS ||
+			ctx.filenames_encryption_mode == EXT4_ENCRYPTION_MODE_PRIVATE ||
+			ctx.filenames_encryption_mode == FMP_ENCRYPTION_MODE_AES_256_CBC) {
+		printk(KERN_WARNING "FMP doesn't support filename encryption mode. \
+				Forcely, change it to AES_256_CTS mode\n");
+		ctx.filenames_encryption_mode = EXT4_ENCRYPTION_MODE_AES_256_CTS;
+	}
+#endif /* ifdef CONFIG_FMP_EXT4CRYPT_FS */
 	crypt_info->ci_ctfm = NULL;
 	memcpy(crypt_info->ci_master_key, ctx.master_key_descriptor,
 	       sizeof(crypt_info->ci_master_key));
@@ -251,10 +274,23 @@ int ext4_get_encryption_info(struct inode *inode)
 	switch (mode) {
 	case EXT4_ENCRYPTION_MODE_AES_256_XTS:
 		cipher_str = "xts(aes)";
+		inode->i_mapping->alg = "xts(aes)";
 		break;
 	case EXT4_ENCRYPTION_MODE_AES_256_CTS:
 		cipher_str = "cts(cbc(aes))";
+		inode->i_mapping->alg = "cts(cbc(aes))";
 		break;
+#ifdef CONFIG_FMP_EXT4CRYPT_FS
+	case FMP_ENCRYPTION_MODE_AES_256_XTS:
+	case EXT4_ENCRYPTION_MODE_PRIVATE:
+		cipher_str = "xts(fmp)";
+		inode->i_mapping->private_algo_mode = FMP_XTS_ALGO_MODE;
+		break;
+	case FMP_ENCRYPTION_MODE_AES_256_CBC:
+		cipher_str = "cbc(fmp)";
+		inode->i_mapping->private_algo_mode = FMP_CBC_ALGO_MODE;
+		break;
+#endif /* ifdef CONFIG_FMP_EXT4CRYPT_FS */
 	case EXT4_ENCRYPTION_MODE_AES_256_HEH:
 		cipher_str = "heh(aes)";
 		break;
@@ -278,13 +314,18 @@ int ext4_get_encryption_info(struct inode *inode)
 			    (2 * EXT4_KEY_DESCRIPTOR_SIZE)] = '\0';
 	keyring_key = request_key(&key_type_logon, full_key_descriptor, NULL);
 	if (IS_ERR(keyring_key)) {
+		static unsigned long int rate = 0;
+		/* print error message per one sec */
+		if (printk_timed_ratelimit(&rate, 1000))
+			printk(KERN_WARNING "ext4: error get keyring! (%s)\n",
+			full_key_descriptor);
 		res = PTR_ERR(keyring_key);
 		keyring_key = NULL;
 		goto out;
 	}
 	if (keyring_key->type != &key_type_logon) {
 		printk_once(KERN_WARNING
-			    "ext4: key type must be logon\n");
+			     "ext4: key type must be logon\n");
 		res = -ENOKEY;
 		goto out;
 	}
@@ -302,7 +343,7 @@ int ext4_get_encryption_info(struct inode *inode)
 		goto out;
 	}
 	master_key = (struct ext4_encryption_key *)ukp->data;
-	BUILD_BUG_ON(EXT4_AES_128_ECB_KEY_SIZE !=
+	BUILD_BUG_ON(EXT4_ESTIMATED_NONCE_SIZE !=
 		     EXT4_KEY_DERIVATION_NONCE_SIZE);
 	if (master_key->size != EXT4_AES_256_XTS_KEY_SIZE) {
 		printk_once(KERN_WARNING
@@ -312,28 +353,49 @@ int ext4_get_encryption_info(struct inode *inode)
 		up_read(&keyring_key->sem);
 		goto out;
 	}
-	res = ext4_derive_key(&ctx, master_key->raw, raw_key);
+	res = __ext4_get_fek(ctx.nonce, master_key->raw, raw_key);
 	up_read(&keyring_key->sem);
 	if (res)
 		goto out;
 got_key:
-	ctfm = crypto_alloc_ablkcipher(cipher_str, 0, 0);
-	if (!ctfm || IS_ERR(ctfm)) {
-		res = ctfm ? PTR_ERR(ctfm) : -ENOMEM;
-		printk(KERN_DEBUG
-		       "%s: error %d (inode %u) allocating crypto tfm\n",
-		       __func__, res, (unsigned) inode->i_ino);
-		goto out;
-	}
-	crypt_info->ci_ctfm = ctfm;
-	crypto_ablkcipher_clear_flags(ctfm, ~0);
-	crypto_tfm_set_flags(crypto_ablkcipher_tfm(ctfm),
-			     CRYPTO_TFM_REQ_WEAK_KEY);
-	res = crypto_ablkcipher_setkey(ctfm, raw_key,
-				       ext4_encryption_key_size(mode));
-	if (res)
-		goto out;
+	memset(crypt_info->raw_key, 0, EXT4_MAX_KEY_SIZE);
+#ifdef CONFIG_FMP_EXT4CRYPT_FS
+	/* hack to support fbe on gsi */
+	if (S_ISREG(inode->i_mode) && (crypt_info->ci_data_mode == EXT4_ENCRYPTION_MODE_AES_256_XTS))
+	    goto private_crypt;
+#endif
 
+	if (mode == FMP_ENCRYPTION_MODE_AES_256_XTS ||
+			mode == EXT4_ENCRYPTION_MODE_PRIVATE ||
+			mode == FMP_ENCRYPTION_MODE_AES_256_CBC) {
+#ifdef CONFIG_FMP_EXT4CRYPT_FS
+private_crypt:
+#endif
+		crypt_info->private_enc_mode = FMP_FILE_ENC_MODE;
+		memcpy(crypt_info->raw_key, raw_key, ext4_encryption_key_size(mode));
+		memset(inode->i_mapping->key, 0, KEY_MAX_SIZE);
+		memcpy(inode->i_mapping->key, crypt_info->raw_key, ext4_encryption_key_size(mode));
+		inode->i_mapping->key_length = ext4_encryption_key_size(mode);
+	} else {
+		crypt_info->private_enc_mode = FMP_BYPASS_MODE;
+		ctfm = crypto_alloc_ablkcipher(cipher_str, 0, 0);
+		if (!ctfm || IS_ERR(ctfm)) {
+			res = ctfm ? PTR_ERR(ctfm) : -ENOMEM;
+			printk(KERN_DEBUG
+			       "%s: error %d (inode %u) allocating crypto tfm\n",
+			       __func__, res, (unsigned) inode->i_ino);
+			goto out;
+		}
+		crypt_info->ci_ctfm = ctfm;
+		crypto_ablkcipher_clear_flags(ctfm, ~0);
+		crypto_tfm_set_flags(crypto_ablkcipher_tfm(ctfm),
+				     CRYPTO_TFM_REQ_WEAK_KEY);
+		res = crypto_ablkcipher_setkey(ctfm, raw_key,
+					       ext4_encryption_key_size(mode));
+		if (res)
+			goto out;
+	}
+	inode->i_mapping->private_enc_mode = crypt_info->private_enc_mode;
 	if (cmpxchg(&ei->i_crypt_info, NULL, crypt_info) == NULL)
 		crypt_info = NULL;
 out:

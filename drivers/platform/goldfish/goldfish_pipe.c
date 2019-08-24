@@ -378,11 +378,15 @@ static ssize_t goldfish_pipe_read_write(struct file *filp, char __user *buffer,
 		while (test_bit(wakeBit, &pipe->flags)) {
 			if (wait_event_interruptible(
 					pipe->wake_queue,
-					!test_bit(wakeBit, &pipe->flags)))
-				return -ERESTARTSYS;
+					!test_bit(wakeBit, &pipe->flags))) {
+				ret = -ERESTARTSYS;
+				break;
+			}
 
-			if (test_bit(BIT_CLOSED_ON_HOST, &pipe->flags))
-				return -EIO;
+			if (test_bit(BIT_CLOSED_ON_HOST, &pipe->flags)) {
+				ret = -EIO;
+				break;
+			}
 		}
 
 		/* Try to re-acquire the lock */
@@ -580,6 +584,11 @@ int goldfish_pipe_device_init_v1(struct platform_device *pdev)
 	}
 
 	setup_access_params_addr(pdev, dev);
+
+	/* Although the pipe device in the classic Android emulator does not
+	 * recognize the 'version' register, it won't treat this as an error
+	 * either and will simply return 0, which is fine. */
+	dev->version = readl(dev->base + PIPE_REG_VERSION);
 	return 0;
 }
 

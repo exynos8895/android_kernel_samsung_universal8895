@@ -141,6 +141,13 @@ static int rtc_resume(struct device *dev)
 	if (sleep_time.tv_sec >= 0)
 		timekeeping_inject_sleeptime64(&sleep_time);
 	rtc_hctosys_ret = 0;
+
+#ifdef CONFIG_SEC_PM_DEBUG
+	if (sleep_time.tv_sec >= 0)
+		printk("Suspended for %lu.%03lu seconds\n", sleep_time.tv_sec,
+			sleep_time.tv_nsec / NSEC_PER_MSEC);
+#endif
+
 	return 0;
 }
 

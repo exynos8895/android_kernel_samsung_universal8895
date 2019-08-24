@@ -89,11 +89,25 @@
 #include <asm/sections.h>
 #include <asm/cacheflush.h>
 
+#ifdef CONFIG_SEC_EXT
+#include <linux/sec_ext.h>
+#endif
+#ifdef CONFIG_RKP
+#include <linux/vmm.h>
+#include <linux/rkp.h> 
+#endif //CONFIG_RKP
+#ifdef CONFIG_RELOCATABLE_KERNEL
+#include <linux/memblock.h>
+#endif
 static int kernel_init(void *);
 
 extern void init_IRQ(void);
 extern void fork_init(void);
 extern void radix_tree_init(void);
+
+#ifdef CONFIG_RKP
+extern struct vm_struct *vmlist;
+#endif
 
 /*
  * Debug helper: via this flag we know that we are in 'early bootup code'
@@ -148,6 +162,8 @@ EXPORT_SYMBOL_GPL(static_key_initialized);
 unsigned int reset_devices;
 EXPORT_SYMBOL(reset_devices);
 
+int ddr_start_type = 0;
+
 static int __init set_reset_devices(char *str)
 {
 	reset_devices = 1;
@@ -155,6 +171,27 @@ static int __init set_reset_devices(char *str)
 }
 
 __setup("reset_devices", set_reset_devices);
+#ifdef CONFIG_RELOCATABLE_KERNEL
+static unsigned long kaslr_mem  __initdata;
+static unsigned long kaslr_size  __initdata;
+
+static int __init set_kaslr_region(char *str){
+	char *endp;
+
+	kaslr_size = memparse(str, &endp);
+	if( *endp == '@')
+	  kaslr_mem = memparse(endp+1, NULL);
+
+	if (memblock_reserve(kaslr_mem, kaslr_size)) {
+			pr_err("%s: failed reserving size %lx " \
+						"at base 0x%lx\n", __func__, kaslr_size, kaslr_mem);
+			return -1;
+	}
+	pr_info("kaslr :%s, base:%lx, size:%lx \n", __func__, kaslr_mem, kaslr_size);
+	return 0;
+}
+__setup("kaslr_region=", set_kaslr_region);
+#endif
 
 static const char *argv_init[MAX_INIT_ARGS+2] = { "init", NULL, };
 const char *envp_init[MAX_INIT_ENVS+2] = { "HOME=/", "TERM=linux", NULL, };
@@ -410,6 +447,10 @@ static noinline void __init_refok rest_init(void)
 	cpu_startup_entry(CPUHP_ONLINE);
 }
 
+#ifdef CONFIG_RKP_KDP
+RKP_RO_AREA int is_boot_recovery = 0;
+#endif
+
 /* Check for early params. */
 static int __init do_early_param(char *param, char *val,
 				 const char *unused, void *arg)
@@ -426,6 +467,23 @@ static int __init do_early_param(char *param, char *val,
 		}
 	}
 	/* We accept everything at this stage. */
+#ifdef CONFIG_KNOX_KAP
+	if ((strncmp(param, "androidboot.security_mode", 26) == 0)) {
+		pr_warn("val = %d\n",*val);
+	        if ((strncmp(val, "1526595585", 10) == 0)) {
+				pr_info("Security Boot Mode \n");
+			}
+	}
+
+#endif
+#ifdef CONFIG_RKP_KDP
+	if ((strncmp(param, "bootmode", 9) == 0)) {
+			//printk("\n RKP22 In Recovery Mode= %d\n",*val);
+			if ((strncmp(val, "2", 2) == 0)) {
+				is_boot_recovery = 1;
+			}
+	}
+#endif
 	return 0;
 }
 
@@ -492,6 +550,93 @@ static void __init mm_init(void)
 	ioremap_huge_init();
 	kaiser_init();
 }
+#ifdef CONFIG_RKP
+
+#ifdef CONFIG_RKP_6G
+__attribute__((section(".rkp.bitmap"))) u8 rkp_pgt_bitmap_arr[0x30000] = {0};
+__attribute__((section(".rkp.dblmap"))) u8 rkp_map_bitmap_arr[0x30000] = {0};
+#else
+__attribute__((section(".rkp.bitmap"))) u8 rkp_pgt_bitmap_arr[0x20000] = {0};
+__attribute__((section(".rkp.dblmap"))) u8 rkp_map_bitmap_arr[0x20000] = {0};
+#endif
+
+u8 rkp_started = 0;
+
+static void __init rkp_init(void)
+{
+	rkp_init_t init;
+	struct vm_struct *p;
+
+	init.magic = RKP_INIT_MAGIC;
+	init.vmalloc_start = (u64)VMALLOC_START;
+	//init.vmalloc_end = (u64)high_memory;
+	init.vmalloc_end = (u64)VMALLOC_END;
+	printk("in rkp_init, swapper_pg_dir : %llx\n", (unsigned long long)swapper_pg_dir);
+	init.init_mm_pgd = (u64)__pa(swapper_pg_dir);
+	init.id_map_pgd = (u64)__pa(idmap_pg_dir);
+	init.zero_pg_addr = __pa(empty_zero_page);
+#ifdef CONFIG_UNMAP_KERNEL_AT_EL0
+	init.tramp_pgd = __pa(tramp_pg_dir);
+#endif
+	init.rkp_pgt_bitmap = (u64)__pa(rkp_pgt_bitmap);
+	init.rkp_dbl_bitmap = (u64)__pa(rkp_map_bitmap);
+	init.rkp_bitmap_size = RKP_PGT_BITMAP_LEN;
+	init._text = (u64) _text;
+	init._etext = (u64) _etext;
+	init.extra_memory_addr = RKP_EXTRA_MEM_START;
+	init.extra_memory_size = RKP_EXTRA_MEM_SIZE;
+	init._srodata = (u64) __start_rodata;
+	init._erodata =(u64) __end_rodata;
+	init.large_memory = 0;
+	//init.fimc_phys_addr = (u64)page_to_phys(vmalloc_to_page((void *)FIMC_LIB_START_VA));
+	init.fimc_phys_addr = 0;
+	for (p = vmlist; p; p = p->next) {
+		if (p->addr == (void *)FIMC_LIB_START_VA) {
+			init.fimc_phys_addr = (u64)(p->phys_addr);
+			break;
+		}
+	}
+	init.fimc_size = FIMC_LIB_SIZE;
+
+	rkp_call(RKP_INIT, (u64)&init, (u64)kimage_voffset, 0, 0, 0);
+	//rkp_call(RKP_INIT, (u64)&init, 0, 0, 0, 0);
+	rkp_started = 1;
+	return;
+}
+#endif
+
+#ifdef CONFIG_RKP_KDP
+static void __init kdp_init(void)
+{
+	kdp_init_t cred;
+
+	cred.credSize 	= sizeof(struct cred);
+	cred.sp_size	= rkp_get_task_sec_size();
+	cred.pgd_mm 	= offsetof(struct mm_struct,pgd);
+	cred.uid_cred	= offsetof(struct cred,uid);
+	cred.euid_cred	= offsetof(struct cred,euid);
+	cred.gid_cred	= offsetof(struct cred,gid);
+	cred.egid_cred	= offsetof(struct cred,egid);
+
+	cred.bp_pgd_cred 	= offsetof(struct cred,bp_pgd);
+	cred.bp_task_cred 	= offsetof(struct cred,bp_task);
+	cred.type_cred 		= offsetof(struct cred,type);
+	cred.security_cred 	= offsetof(struct cred,security);
+	cred.usage_cred 	= offsetof(struct cred,use_cnt);
+
+	cred.cred_task  	= offsetof(struct task_struct,cred);
+	cred.mm_task 		= offsetof(struct task_struct,mm);
+	cred.pid_task		= offsetof(struct task_struct,pid);
+	cred.rp_task		= offsetof(struct task_struct,real_parent);
+	cred.comm_task 		= offsetof(struct task_struct,comm);
+
+	cred.bp_cred_secptr 	= rkp_get_offset_bp_cred();
+
+	cred.task_threadinfo = offsetof(struct thread_info,task);
+	rkp_call(RKP_CMDID(0x40),(u64)&cred,0,0,0,0);
+}
+#endif /*CONFIG_RKP_KDP*/
+
 
 asmlinkage __visible void __init start_kernel(void)
 {
@@ -555,7 +700,30 @@ asmlinkage __visible void __init start_kernel(void)
 	vfs_caches_init_early();
 	sort_main_extable();
 	trap_init();
+#ifdef CONFIG_RKP
+	rkp_reserve_mem();
+#endif
 	mm_init();
+#ifdef CONFIG_RKP
+	vmm_init();
+	rkp_init();
+
+#if !defined(CONFIG_USE_SIGNED_BINARY)
+	rkp_call(RKP_NOSHIP_BIN, 0, 0, 0, 0, 0);
+#endif
+
+#ifdef CONFIG_RKP_DEBUG
+	rkp_call(RKP_DEBUG, 0, 0, 0, 0, 0);
+#endif
+
+#ifdef CONFIG_RELOCATABLE_KERNEL 
+	rkp_call(KASLR_MEM_RESERVE, kaslr_mem, kaslr_size, 0, 0, 0);
+#endif
+
+#ifdef CONFIG_RKP_KDP
+	rkp_cred_enable = 1;
+#endif /*CONFIG_RKP_KDP*/
+#endif //CONFIG_RKP
 
 	/*
 	 * Set up the scheduler prior starting any interrupts (such as the
@@ -648,6 +816,10 @@ asmlinkage __visible void __init start_kernel(void)
 	init_espfix_bsp();
 #endif
 	thread_stack_cache_init();
+#ifdef CONFIG_RKP_KDP
+	if (rkp_cred_enable) 
+		kdp_init();
+#endif /*CONFIG_RKP_KDP*/
 	cred_init();
 	fork_init();
 	proc_caches_init();
@@ -766,14 +938,21 @@ static int __init_or_module do_one_initcall_debug(initcall_t fn)
 	unsigned long long duration;
 	int ret;
 
-	printk(KERN_DEBUG "calling  %pF @ %i\n", fn, task_pid_nr(current));
+	if (initcall_debug)
+		printk(KERN_DEBUG "calling  %pF @ %i\n", fn, task_pid_nr(current));
 	calltime = ktime_get();
 	ret = fn();
 	rettime = ktime_get();
 	delta = ktime_sub(rettime, calltime);
 	duration = (unsigned long long) ktime_to_ns(delta) >> 10;
-	printk(KERN_DEBUG "initcall %pF returned %d after %lld usecs\n",
-		 fn, ret, duration);
+	if (initcall_debug)
+		printk(KERN_DEBUG "initcall %pF returned %d after %lld usecs\n",
+			fn, ret, duration);
+
+#ifdef CONFIG_SEC_INITCALL_DEBUG
+	if (SEC_INITCALL_DEBUG_MIN_TIME < duration)
+		sec_initcall_debug_add(fn, duration);
+#endif
 
 	return ret;
 }
@@ -787,11 +966,14 @@ int __init_or_module do_one_initcall(initcall_t fn)
 	if (initcall_blacklisted(fn))
 		return -EPERM;
 
+#ifdef CONFIG_SEC_INITCALL_DEBUG
+	ret = do_one_initcall_debug(fn);
+#else
 	if (initcall_debug)
 		ret = do_one_initcall_debug(fn);
 	else
 		ret = fn();
-
+#endif
 	msgbuf[0] = 0;
 
 	if (preempt_count() != count) {
@@ -856,6 +1038,11 @@ static void __init do_initcall_level(int level)
 
 	for (fn = initcall_levels[level]; fn < initcall_levels[level+1]; fn++)
 		do_one_initcall(*fn);
+
+#ifdef CONFIG_SEC_BOOTSTAT
+	sec_bootstat_add_initcall(initcall_level_names[level]);
+#endif
+
 }
 
 static void __init do_initcalls(void)
@@ -926,6 +1113,38 @@ static int try_to_run_init_process(const char *init_filename)
 	return ret;
 }
 
+#ifdef CONFIG_DEFERRED_INITCALLS
+extern initcall_t __deferred_initcall_start[], __deferred_initcall_end[];
+
+/* call deferred init routines */
+static void __ref do_deferred_initcalls(struct work_struct *work)
+{
+	initcall_t *call;
+	static bool already_run;
+
+	if (already_run) {
+		pr_warn("%s() has already run\n", __func__);
+		return;
+	}
+
+	already_run = true;
+
+	pr_err("Running %s()\n", __func__);
+
+	for (call = __deferred_initcall_start;
+			call < __deferred_initcall_end; call++)
+		do_one_initcall(*call);
+
+	free_initmem();
+}
+
+static DECLARE_WORK(deferred_initcall_work, do_deferred_initcalls);
+#endif
+
+#ifdef CONFIG_SEC_GPIO_DVS
+extern void gpio_dvs_check_initgpio(void);
+#endif
+
 static noinline void __init kernel_init_freeable(void);
 
 #ifdef CONFIG_DEBUG_RODATA
@@ -955,9 +1174,20 @@ static int __ref kernel_init(void *unused)
 	int ret;
 
 	kernel_init_freeable();
+#ifdef CONFIG_SEC_GPIO_DVS
+	/************************ Caution !!! ****************************/
+	/* This function must be located in appropriate INIT position
+	 * in accordance with the specification of each BB vendor.
+	 */
+	/************************ Caution !!! ****************************/
+	pr_info("%s: GPIO DVS: check init gpio\n", __func__);
+	gpio_dvs_check_initgpio();
+#endif
 	/* need to finish all async __init code before freeing the memory */
 	async_synchronize_full();
+#ifndef CONFIG_DEFERRED_INITCALLS
 	free_initmem();
+#endif
 	mark_readonly();
 	system_state = SYSTEM_RUNNING;
 	numa_default_policy();
@@ -966,8 +1196,12 @@ static int __ref kernel_init(void *unused)
 
 	if (ramdisk_execute_command) {
 		ret = run_init_process(ramdisk_execute_command);
-		if (!ret)
+		if (!ret) {
+#ifdef CONFIG_DEFERRED_INITCALLS
+			schedule_work(&deferred_initcall_work);
+#endif
 			return 0;
+		}
 		pr_err("Failed to execute %s (error %d)\n",
 		       ramdisk_execute_command, ret);
 	}
@@ -980,8 +1214,12 @@ static int __ref kernel_init(void *unused)
 	 */
 	if (execute_command) {
 		ret = run_init_process(execute_command);
-		if (!ret)
+		if (!ret) {
+#ifdef CONFIG_DEFERRED_INITCALLS
+			schedule_work(&deferred_initcall_work);
+#endif
 			return 0;
+		}
 		panic("Requested init %s failed (error %d).",
 		      execute_command, ret);
 	}

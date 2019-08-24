@@ -321,7 +321,6 @@ static ssize_t keychord_write(struct file *file, const char __user *buffer,
 	kdev->head = kdev->tail = 0;
 
 	keychord = keychords;
-
 	while (resid > 0) {
 		/* Is the entire keychord entry header present ? */
 		if (resid < sizeof(struct input_keychord)) {

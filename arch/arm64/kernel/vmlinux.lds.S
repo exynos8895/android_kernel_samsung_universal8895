@@ -80,8 +80,8 @@ PECOFF_FILE_ALIGNMENT = 0x200;
 #define ALIGN_DEBUG_RO			. = ALIGN(1<<PAGE_SHIFT);
 #define ALIGN_DEBUG_RO_MIN(min)		ALIGN_DEBUG_RO
 #else
-#define ALIGN_DEBUG_RO
-#define ALIGN_DEBUG_RO_MIN(min)		. = ALIGN(min);
+#define ALIGN_DEBUG_RO			. = ALIGN(1<<PAGE_SHIFT);
+#define ALIGN_DEBUG_RO_MIN(min)		ALIGN_DEBUG_RO
 #endif
 
 SECTIONS
@@ -126,6 +126,39 @@ SECTIONS
 		. = ALIGN(16);
 		*(.got)			/* Global offset table		*/
 	}
+
+#ifdef CONFIG_RKP
+	. = ALIGN(PAGE_SIZE);
+	.rkp.bitmap : {
+		rkp_pgt_bitmap = .;
+		*(.rkp.bitmap)
+	}
+	. = ALIGN(PAGE_SIZE);
+	.rkp.dblmap : {
+		rkp_map_bitmap = .;
+		*(.rkp.dblmap)
+	}
+#ifdef CONFIG_RKP_KDP
+	. = ALIGN(PAGE_SIZE);
+	.rkp.ro.area : {
+		__rkp_ro_start = .;
+	}
+	__rkp_ro_end = .;
+#endif /* CONFIG_RKP_KDP*/
+	. = ALIGN(PAGE_SIZE);
+	.empty_zero_page :{
+		*(.empty_zero_page)
+	}
+	. = ALIGN(PAGE_SIZE);
+	bm_pte = .;
+	. += PAGE_SIZE;
+	. = ALIGN(PAGE_SIZE);
+	bm_pmd = .;
+	. += PAGE_SIZE;
+	. = ALIGN(PAGE_SIZE);
+	bm_pud = .;
+	. += PAGE_SIZE;
+#endif
 
 	ALIGN_DEBUG_RO_MIN(PAGE_SIZE)
 	_etext = .;			/* End of text section */
@@ -207,6 +240,7 @@ SECTIONS
 	tramp_pg_dir = .;
 	. += PAGE_SIZE;
 #endif
+
 
 	_end = .;
 

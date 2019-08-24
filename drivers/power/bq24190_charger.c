@@ -17,6 +17,14 @@
 #include <linux/power_supply.h>
 #include <linux/gpio.h>
 #include <linux/i2c.h>
+#if defined(CONFIG_FUELGAUGE_MAX17058_POWER) || defined(CONFIG_FUELGAUGE_S2MG001_POWER)
+#include <linux/workqueue.h>
+#endif
+
+#ifdef CONFIG_MUIC_NOTIFIER
+#include <linux/muic/muic.h>
+#include <linux/muic/muic_notifier.h>
+#endif
 
 #include <linux/power/bq24190_charger.h>
 
@@ -26,11 +34,14 @@
 #define BQ24190_REG_ISC		0x00 /* Input Source Control */
 #define BQ24190_REG_ISC_EN_HIZ_MASK		BIT(7)
 #define BQ24190_REG_ISC_EN_HIZ_SHIFT		7
+#define BQ24190_REG_ISC_EN_HIZ_SET		0x1
+#define BQ24190_REG_ISC_EN_HIZ_CLEAR		0x0
 #define BQ24190_REG_ISC_VINDPM_MASK		(BIT(6) | BIT(5) | BIT(4) | \
 						 BIT(3))
 #define BQ24190_REG_ISC_VINDPM_SHIFT		3
 #define BQ24190_REG_ISC_IINLIM_MASK		(BIT(2) | BIT(1) | BIT(0))
 #define BQ24190_REG_ISC_IINLIM_SHIFT		0
+#define BQ24190_REG_ISC_IINLIM_500		0x2
 
 #define BQ24190_REG_POC		0x01 /* Power-On Configuration */
 #define BQ24190_REG_POC_RESET_MASK		BIT(7)
@@ -93,6 +104,7 @@
 #define BQ24190_REG_MOC		0x07 /* Misc. Operation Control */
 #define BQ24190_REG_MOC_DPDM_EN_MASK		BIT(7)
 #define BQ24190_REG_MOC_DPDM_EN_SHIFT		7
+#define BQ24190_REG_MOC_DPDM_FORCED_DETECT	0x1
 #define BQ24190_REG_MOC_TMR2X_EN_MASK		BIT(6)
 #define BQ24190_REG_MOC_TMR2X_EN_SHIFT		6
 #define BQ24190_REG_MOC_BATFET_DISABLE_MASK	BIT(5)
@@ -105,8 +117,11 @@
 #define BQ24190_REG_SS		0x08 /* System Status */
 #define BQ24190_REG_SS_VBUS_STAT_MASK		(BIT(7) | BIT(6))
 #define BQ24190_REG_SS_VBUS_STAT_SHIFT		6
+#define BQ24190_REG_SS_VBUS_STAT_TA		0x80
+#define BQ24190_REG_SS_VBUS_STAT_USB		0x40
 #define BQ24190_REG_SS_CHRG_STAT_MASK		(BIT(5) | BIT(4))
 #define BQ24190_REG_SS_CHRG_STAT_SHIFT		4
+#define BQ24190_REG_SS_CHRG_STAT_CHRG_DONE	0x3
 #define BQ24190_REG_SS_DPM_STAT_MASK		BIT(3)
 #define BQ24190_REG_SS_DPM_STAT_SHIFT		3
 #define BQ24190_REG_SS_PG_STAT_MASK		BIT(2)
@@ -123,6 +138,7 @@
 #define BQ24190_REG_F_BOOST_FAULT_SHIFT		6
 #define BQ24190_REG_F_CHRG_FAULT_MASK		(BIT(5) | BIT(4))
 #define BQ24190_REG_F_CHRG_FAULT_SHIFT		4
+#define BQ24190_REG_F_CHRG_FAULT_SAFETY_TIMER	0x3
 #define BQ24190_REG_F_BAT_FAULT_MASK		BIT(3)
 #define BQ24190_REG_F_BAT_FAULT_SHIFT		3
 #define BQ24190_REG_F_NTC_FAULT_MASK		(BIT(2) | BIT(1) | BIT(0))
@@ -151,6 +167,9 @@ struct bq24190_dev_info {
 	struct device			*dev;
 	struct power_supply		*charger;
 	struct power_supply		*battery;
+#if defined(CONFIG_FUELGAUGE_MAX17058_POWER) || defined(CONFIG_FUELGAUGE_S2MG001_POWER)
+	struct delayed_work polling_work;
+#endif
 	char				model_name[I2C_NAME_SIZE];
 	kernel_ulong_t			model;
 	unsigned int			gpio_int;
@@ -159,6 +178,20 @@ struct bq24190_dev_info {
 	u8				f_reg;
 	u8				ss_reg;
 	u8				watchdog;
+	int				charge_voltage_limit;
+#if defined(CONFIG_FUELGAUGE_MAX17058_POWER) || defined(CONFIG_FUELGAUGE_S2MG001_POWER)
+	char				*fuelgauge_name;
+	int				voltage_now;
+	int				voltage_avg;
+	int				voltage_ocv;
+	unsigned int			capacity[3];
+	int				soc_cnt;
+#endif
+#if defined(CONFIG_MUIC_NOTIFIER)
+	struct notifier_block		bdi_nb;
+	struct delayed_work 		charger_work;
+	bool 				attach;
+#endif
 };
 
 /*
@@ -168,6 +201,11 @@ struct bq24190_dev_info {
  * number at that index in the array is the real-world value that it
  * represents.
  */
+/* REG00[2:0] (IINLIM) in mA */
+static const int bq24190_isc_iinlim_values[] = {
+	100, 150, 500, 900, 1200, 1500, 2000, 3000
+};
+
 /* REG02[7:2] (ICHG) in uAh */
 static const int bq24190_ccc_ichg_values[] = {
 	 512000,  576000,  640000,  704000,  768000,  832000,  896000,  960000,
@@ -729,6 +767,35 @@ static int bq24190_charger_get_current_max(struct bq24190_dev_info *bdi,
 	return 0;
 }
 
+#if defined(CONFIG_MUIC_NOTIFIER)
+static int bq24190_charger_set_hiz_mode(struct bq24190_dev_info *bdi,
+		const union power_supply_propval *val)
+{
+	int curr = val->intval;
+
+	if (curr) {
+		return bq24190_write_mask(bdi, BQ24190_REG_ISC,
+					BQ24190_REG_ISC_EN_HIZ_MASK,
+					BQ24190_REG_ISC_EN_HIZ_SHIFT,
+					BQ24190_REG_ISC_EN_HIZ_SET);
+	} else {
+		return bq24190_write_mask(bdi, BQ24190_REG_ISC,
+					BQ24190_REG_ISC_EN_HIZ_MASK,
+					BQ24190_REG_ISC_EN_HIZ_SHIFT,
+					BQ24190_REG_ISC_EN_HIZ_CLEAR);
+	}
+}
+
+static int bq24190_charger_set_current_limit(struct bq24190_dev_info *bdi,
+		const union power_supply_propval *val)
+{
+	return bq24190_set_field_val(bdi, BQ24190_REG_ISC,
+			BQ24190_REG_ISC_IINLIM_MASK, BQ24190_REG_ISC_IINLIM_SHIFT,
+			bq24190_isc_iinlim_values,
+			ARRAY_SIZE(bq24190_isc_iinlim_values), val->intval);
+}
+#endif
+
 static int bq24190_charger_set_current(struct bq24190_dev_info *bdi,
 		const union power_supply_propval *val)
 {
@@ -1055,6 +1122,141 @@ static int bq24190_battery_set_temp_alert_max(struct bq24190_dev_info *bdi,
 			ARRAY_SIZE(bq24190_ictrc_treg_values), val->intval);
 }
 
+#if defined(CONFIG_MUIC_NOTIFIER)
+static void bq24190_charger_work(struct work_struct *work)
+{
+	struct bq24190_dev_info *bdi =
+		container_of(work, struct bq24190_dev_info, charger_work.work);
+	bool alert_userspace = false;
+	u8 reg_isc, reg_poc, reg_ccc, reg_pctcc, reg_cvc, reg_cttc,
+	   reg_ictrc, reg_moc, ss_reg, f_reg, f_reg1 = 0;
+	union power_supply_propval value;
+
+	dev_info(bdi->dev, "start charger work \n");
+	pm_runtime_get_sync(bdi->dev);
+
+	mutex_lock(&bdi->f_reg_lock);
+	bq24190_read(bdi, BQ24190_REG_F, &f_reg);
+	bq24190_read(bdi, BQ24190_REG_F, &f_reg1);
+
+	f_reg |= f_reg1;
+	if (f_reg != bdi->f_reg) {
+		bdi->f_reg = f_reg;
+		bdi->charger_health_valid = true;
+		bdi->battery_health_valid = true;
+		bdi->battery_status_valid = true;
+
+		alert_userspace = true;
+	}
+	mutex_unlock(&bdi->f_reg_lock);
+
+	bq24190_read(bdi, BQ24190_REG_SS, &ss_reg);
+	if (ss_reg != bdi->ss_reg) {
+		bdi->ss_reg = ss_reg;
+		alert_userspace = true;
+	}
+	if (ss_reg & BQ24190_REG_SS_PG_STAT_MASK) {
+		if ((ss_reg & BQ24190_REG_SS_VBUS_STAT_MASK) ==
+				BQ24190_REG_SS_VBUS_STAT_TA) {
+			bq24190_write_mask(bdi, BQ24190_REG_MOC,
+				BQ24190_REG_MOC_DPDM_EN_MASK,
+				BQ24190_REG_MOC_DPDM_EN_SHIFT,
+				BQ24190_REG_MOC_DPDM_FORCED_DETECT);
+		}
+		else if ((ss_reg & BQ24190_REG_SS_VBUS_STAT_MASK) ==
+				BQ24190_REG_SS_VBUS_STAT_USB) {
+			value.intval = 500; /* 500mA */
+			bq24190_charger_set_current_limit(bdi, &value);
+		}
+	}
+
+	f_reg &= BQ24190_REG_F_CHRG_FAULT_MASK;
+	f_reg >>= BQ24190_REG_F_CHRG_FAULT_SHIFT;
+
+	ss_reg &= BQ24190_REG_SS_CHRG_STAT_MASK;
+	ss_reg >>= BQ24190_REG_SS_CHRG_STAT_SHIFT;
+
+	if ((f_reg != BQ24190_REG_F_CHRG_FAULT_SAFETY_TIMER) ||
+		(ss_reg != BQ24190_REG_SS_CHRG_STAT_CHRG_DONE)){
+
+		bq24190_read(bdi, BQ24190_REG_ISC, &reg_isc);
+		reg_isc &= BQ24190_REG_ISC_EN_HIZ_MASK;
+		reg_isc >>= BQ24190_REG_ISC_EN_HIZ_SHIFT;
+
+		if (reg_isc == BQ24190_REG_ISC_EN_HIZ_SET) {
+			dev_info(bdi->dev, "new charging cycle start!\n");
+			/*
+			 * Charging safety timer needs to be restarted
+			 * at the beginning of a new charging cycle.
+			 */
+			value.intval = 0; /* clear hiz mode */
+			bq24190_charger_set_hiz_mode(bdi, &value);
+		}
+	}
+
+	if (alert_userspace && !bdi->first_time) {
+		power_supply_changed(bdi->charger);
+		power_supply_changed(bdi->battery);
+		bdi->first_time = false;
+	}
+
+	bq24190_read(bdi, BQ24190_REG_ISC, &reg_isc);
+	bq24190_read(bdi, BQ24190_REG_POC, &reg_poc);
+	bq24190_read(bdi, BQ24190_REG_CCC, &reg_ccc);
+	bq24190_read(bdi, BQ24190_REG_PCTCC, &reg_pctcc);
+	bq24190_read(bdi, BQ24190_REG_CVC, &reg_cvc);
+	bq24190_read(bdi, BQ24190_REG_CTTC,&reg_cttc);
+	bq24190_read(bdi, BQ24190_REG_ICTRC, &reg_ictrc);
+	bq24190_read(bdi, BQ24190_REG_MOC, &reg_moc);
+
+	dev_info(bdi->dev, "reg00 = 0x%02x reg01 = 0x%02x reg02 = 0x%02x reg03 = 0x%02x reg04 = 0x%02x\n"
+			, reg_isc,reg_poc,reg_ccc, reg_pctcc, reg_cvc);
+	dev_info(bdi->dev, "reg05 = 0x%02x reg06 = 0x%02x reg07 = 0x%02x reg08 = 0x%02x reg09 = 0x%02x\n"
+			, reg_cttc, reg_ictrc, reg_moc, bdi->ss_reg, bdi->f_reg);
+
+	pm_runtime_put_sync(bdi->dev);
+
+	if (bdi->attach) {
+		dev_info(bdi->dev, "power supply attached\n");
+		schedule_delayed_work(&bdi->charger_work, HZ * 60);
+	}
+}
+#endif
+
+#if defined(CONFIG_FUELGAUGE_MAX17058_POWER) || defined(CONFIG_FUELGAUGE_S2MG001_POWER)
+static void sec_bat_get_battery_info(
+				struct work_struct *work)
+{
+	struct bq24190_dev_info *bdi =
+		container_of(work, struct bq24190_dev_info, polling_work.work);
+
+	union power_supply_propval value;
+
+	psy_do_property(bdi->fuelgauge_name, get,
+		POWER_SUPPLY_PROP_VOLTAGE_NOW, value);
+	bdi->voltage_now = value.intval;
+
+	value.intval = SEC_BATTERY_VOLTAGE_AVERAGE;
+	psy_do_property(bdi->fuelgauge_name, get,
+		POWER_SUPPLY_PROP_VOLTAGE_AVG, value);
+	bdi->voltage_avg = value.intval;
+
+	value.intval = SEC_BATTERY_VOLTAGE_OCV;
+	psy_do_property(bdi->fuelgauge_name, get,
+		POWER_SUPPLY_PROP_VOLTAGE_AVG, value);
+	bdi->voltage_ocv = value.intval;
+
+	/* To get SOC value (NOT raw SOC), need to reset value */
+	value.intval = 0;
+	psy_do_property(bdi->fuelgauge_name, get,
+		POWER_SUPPLY_PROP_CAPACITY, value);
+	bdi->soc_cnt++;
+	bdi->capacity[bdi->soc_cnt % 3] = value.intval;
+
+	schedule_delayed_work(&bdi->polling_work, HZ * 20);
+}
+#endif
+
 static int bq24190_battery_get_property(struct power_supply *psy,
 		enum power_supply_property psp, union power_supply_propval *val)
 {
@@ -1085,6 +1287,55 @@ static int bq24190_battery_get_property(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_SCOPE:
 		val->intval = POWER_SUPPLY_SCOPE_SYSTEM;
+		ret = 0;
+		break;
+#if defined(CONFIG_FUELGAUGE_MAX17058_POWER) || defined(CONFIG_FUELGAUGE_S2MG001_POWER)
+	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
+		psy_do_property(bdi->fuelgauge_name, get,
+				POWER_SUPPLY_PROP_VOLTAGE_NOW, value);
+		bdi->voltage_now = value.intval;
+		dev_err(bdi->dev,
+			"%s: voltage now(%d)\n", __func__, bdi->voltage_now);
+		val->intval = bdi->voltage_now * 1000;
+		ret = 0;
+		break;
+	case POWER_SUPPLY_PROP_VOLTAGE_AVG:
+		value.intval = SEC_BATTERY_VOLTAGE_AVERAGE;
+		psy_do_property(bdi->fuelgauge_name, get,
+				POWER_SUPPLY_PROP_VOLTAGE_AVG, value);
+		bdi->voltage_avg = value.intval;
+		dev_err(bdi->dev,
+			"%s: voltage avg(%d)\n", __func__, bdi->voltage_avg);
+		val->intval = bdi->voltage_now * 1000;
+		ret = 0;
+		break;
+#endif
+	case POWER_SUPPLY_PROP_CAPACITY:
+#if defined(CONFIG_FUELGAUGE_MAX17058_POWER) || defined(CONFIG_FUELGAUGE_S2MG001_POWER)
+		if (bq24190_battery_get_status(bdi, val) ==
+			POWER_SUPPLY_STATUS_FULL)
+			val->intval = 100;
+		else {
+			if (!bdi->capacity[0] && !bdi->capacity[1]
+					&& !bdi->capacity[2])
+				val->intval = 0;
+			else {
+				if (!bdi->capacity[bdi->soc_cnt % 3]) {
+					if (bdi->soc_cnt < 3) {
+						ret = -ENODATA;
+						break;
+					}
+					if (!bdi->capacity[(bdi->soc_cnt - 1) % 3])
+						val->intval = bdi->capacity[(bdi->soc_cnt - 2) % 3];
+					else
+						val->intval = bdi->capacity[(bdi->soc_cnt - 1) % 3];
+				} else
+					val->intval = bdi->capacity[bdi->soc_cnt % 3];
+			}
+		}
+#else
+		val->intval = 80;
+#endif
 		ret = 0;
 		break;
 	default:
@@ -1145,6 +1396,11 @@ static enum power_supply_property bq24190_battery_properties[] = {
 	POWER_SUPPLY_PROP_TECHNOLOGY,
 	POWER_SUPPLY_PROP_TEMP_ALERT_MAX,
 	POWER_SUPPLY_PROP_SCOPE,
+#if defined(CONFIG_FUELGAUGE_MAX17058_POWER) || defined(CONFIG_FUELGAUGE_S2MG001_POWER)
+	POWER_SUPPLY_PROP_VOLTAGE_NOW,
+	POWER_SUPPLY_PROP_VOLTAGE_AVG,
+#endif
+	POWER_SUPPLY_PROP_CAPACITY,
 };
 
 static const struct power_supply_desc bq24190_battery_desc = {
@@ -1156,6 +1412,17 @@ static const struct power_supply_desc bq24190_battery_desc = {
 	.set_property		= bq24190_battery_set_property,
 	.property_is_writeable	= bq24190_battery_property_is_writeable,
 };
+
+#if 0
+static irqreturn_t bq24190_irq_handler(int irq, void *data)
+{
+	struct bq24190_dev_info *bdi = data;
+
+	disable_irq_nosync(irq);
+	dev_info(bdi->dev, "interrupt occured!:%d \n",irq);
+
+	return IRQ_WAKE_THREAD;
+}
 
 static irqreturn_t bq24190_irq_handler_thread(int irq, void *data)
 {
@@ -1229,6 +1496,37 @@ static irqreturn_t bq24190_irq_handler_thread(int irq, void *data)
 	if (alert_battery)
 		power_supply_changed(bdi->battery);
 
+	ret = bq24190_read(bdi, BQ24190_REG_ISC, &reg_isc);
+	if (ret < 0)
+		dev_err(bdi->dev, "Can't read ISC reg: %d\n", ret);
+
+	ret = bq24190_read(bdi, BQ24190_REG_POC, &reg_poc);
+	if (ret < 0)
+		dev_err(bdi->dev, "Can't read POC reg: %d\n", ret);
+
+	ret = bq24190_read(bdi, BQ24190_REG_CCC, &reg_ccc);
+	if (ret < 0)
+		dev_err(bdi->dev, "Can't read CCC reg: %d\n", ret);
+
+	ret = bq24190_read(bdi, BQ24190_REG_PCTCC, &reg_pctcc);
+	if (ret < 0)
+		dev_err(bdi->dev, "Can't read PCTCC reg: %d\n", ret);
+
+	ret = bq24190_read(bdi, BQ24190_REG_CVC, &reg_cvc);
+	if (ret < 0)
+		dev_err(bdi->dev, "Can't read CVC reg: %d\n", ret);
+
+	ret = bq24190_read(bdi, BQ24190_REG_CTTC,&reg_cttc);
+	if (ret < 0)
+		dev_err(bdi->dev, "Can't read CTTC reg: %d\n", ret);
+
+	ret = bq24190_read(bdi, BQ24190_REG_ICTRC, &reg_ictrc);
+	if (ret < 0)
+		dev_err(bdi->dev, "Can't read ICTRC reg: %d\n", ret);
+
+	ret = bq24190_read(bdi, BQ24190_REG_MOC, &reg_moc);
+	if (ret < 0)
+		dev_err(bdi->dev, "Can't read MOC reg: %d\n", ret);
 out:
 	pm_runtime_put_sync(bdi->dev);
 
@@ -1236,11 +1534,13 @@ out:
 
 	return IRQ_HANDLED;
 }
+#endif
 
 static int bq24190_hw_init(struct bq24190_dev_info *bdi)
 {
 	u8 v;
 	int ret;
+	union power_supply_propval value;
 
 	pm_runtime_get_sync(bdi->dev);
 
@@ -1274,9 +1574,25 @@ out:
 #ifdef CONFIG_OF
 static int bq24190_setup_dt(struct bq24190_dev_info *bdi)
 {
+	union power_supply_propval value;
+
+#if 0
 	bdi->irq = irq_of_parse_and_map(bdi->dev->of_node, 0);
 	if (bdi->irq <= 0)
 		return -1;
+#endif
+
+#if defined(CONFIG_FUELGAUGE_MAX17058_POWER) || defined(CONFIG_FUELGAUGE_S2MG001_POWER)
+	if (of_property_read_string(bdi->dev->of_node, "battery,fuelgauge_name", (char const **)&bdi->fuelgauge_name)) {
+		dev_err(bdi->dev, "failed to get fuelgauge_name\n");
+		return -EINVAL;
+	}
+#endif
+	if (of_property_read_u32(bdi->dev->of_node, "battery,charge_voltage_limit", &bdi->charge_voltage_limit)) {
+		bq24190_charger_get_voltage(bdi, &value);
+		bdi->charge_voltage_limit = value.intval;
+		dev_info(bdi->dev, "default charge voltage limit is %d uV", value.intval);
+	}
 
 	return 0;
 }
@@ -1314,6 +1630,63 @@ out:
 	gpio_free(pdata->gpio_int);
 	return -1;
 }
+
+#if defined(CONFIG_MUIC_NOTIFIER)
+static void bq24190_set_otg(struct bq24190_dev_info *bdi,bool enable)
+{
+	if(enable){
+		bq24190_write_mask(bdi, BQ24190_REG_POC,
+			BQ24190_REG_POC_CHG_CONFIG_MASK,
+			BQ24190_REG_POC_CHG_CONFIG_SHIFT, 0x2);
+	}
+	else {
+		bq24190_write_mask(bdi, BQ24190_REG_POC,
+			BQ24190_REG_POC_CHG_CONFIG_MASK,
+			BQ24190_REG_POC_CHG_CONFIG_SHIFT, 0x0);
+	}
+}
+
+static int bq24190_handle_notification(struct notifier_block *nb,
+		unsigned long action, void *data)
+{
+	muic_attached_dev_t attached_dev = *(muic_attached_dev_t *)data;
+	struct bq24190_dev_info *bdi =
+		container_of(nb, struct bq24190_dev_info,
+			     bdi_nb);
+
+	dev_info(bdi->dev,"%s action=%lu, attached_dev=%d\n",
+		__func__, action, attached_dev);
+
+	if (action == MUIC_NOTIFY_CMD_DETACH) {
+		cancel_delayed_work(&bdi->charger_work);
+		bdi->attach = false;
+		switch (attached_dev) {
+		case ATTACHED_DEV_OTG_MUIC:
+		case ATTACHED_DEV_HMT_MUIC:
+			bq24190_set_otg(bdi, false);
+			dev_info(bdi->dev,"bq24190: set otg disabled\n");
+			break;
+		default:
+			break;
+		}
+	}
+	else if (action == MUIC_NOTIFY_CMD_ATTACH) {
+		bdi->attach = true;
+		switch (attached_dev) {
+		case ATTACHED_DEV_OTG_MUIC:
+		case ATTACHED_DEV_HMT_MUIC:
+			bq24190_set_otg(bdi,true);
+			dev_info(bdi->dev,"bq24190: set otg enabled\n");
+			break;
+		default:
+			break;
+		}
+	}
+
+	schedule_delayed_work(&bdi->charger_work, HZ * 1);
+	return 0;
+}
+#endif
 
 static int bq24190_probe(struct i2c_client *client,
 		const struct i2c_device_id *id)
@@ -1385,6 +1758,34 @@ static int bq24190_probe(struct i2c_client *client,
 		goto out2;
 	}
 
+#if 0
+	if (bdi->irq > 0) {
+		ret = devm_request_threaded_irq(dev, bdi->irq, bq24190_irq_handler,
+				bq24190_irq_handler_thread,
+				IRQF_TRIGGER_RISING | IRQF_ONESHOT,
+				"bq24190-charger", bdi);
+	}
+#endif
+	if (ret < 0) {
+		dev_err(dev, "Can't set up irq handler\n");
+		goto out1;
+	}
+
+	pm_runtime_enable(dev);
+	pm_runtime_resume(dev);
+
+	ret = bq24190_hw_init(bdi);
+	if (ret < 0) {
+		dev_err(dev, "Hardware init failed\n");
+		goto out2;
+	}
+	bdi->first_time = false;
+#if defined(CONFIG_FUELGAUGE_MAX17058_POWER) || defined(CONFIG_FUELGAUGE_S2MG001_POWER)
+	INIT_DELAYED_WORK(&bdi->polling_work,
+				sec_bat_get_battery_info);
+	schedule_delayed_work(&bdi->polling_work, HZ * 5);
+#endif
+
 	ret = bq24190_sysfs_create_group(bdi);
 	if (ret) {
 		dev_err(dev, "Can't create sysfs entries\n");
@@ -1399,6 +1800,13 @@ static int bq24190_probe(struct i2c_client *client,
 		dev_err(dev, "Can't set up irq handler\n");
 		goto out4;
 	}
+
+#if defined(CONFIG_MUIC_NOTIFIER)
+	INIT_DELAYED_WORK(&bdi->charger_work,
+				bq24190_charger_work);
+	muic_notifier_register(&bdi->bdi_nb, bq24190_handle_notification,
+			       MUIC_NOTIFY_DEV_USB);
+#endif
 
 	return 0;
 
@@ -1438,13 +1846,6 @@ static int bq24190_remove(struct i2c_client *client)
 #ifdef CONFIG_PM_SLEEP
 static int bq24190_pm_suspend(struct device *dev)
 {
-	struct i2c_client *client = to_i2c_client(dev);
-	struct bq24190_dev_info *bdi = i2c_get_clientdata(client);
-
-	pm_runtime_get_sync(bdi->dev);
-	bq24190_register_reset(bdi);
-	pm_runtime_put_sync(bdi->dev);
-
 	return 0;
 }
 
@@ -1452,6 +1853,7 @@ static int bq24190_pm_resume(struct device *dev)
 {
 	struct i2c_client *client = to_i2c_client(dev);
 	struct bq24190_dev_info *bdi = i2c_get_clientdata(client);
+	int ret = 0;
 
 	bdi->f_reg = 0;
 	bdi->ss_reg = BQ24190_REG_SS_VBUS_STAT_MASK; /* impossible state */
@@ -1479,6 +1881,7 @@ static SIMPLE_DEV_PM_OPS(bq24190_pm_ops, bq24190_pm_suspend, bq24190_pm_resume);
  */
 static const struct i2c_device_id bq24190_i2c_ids[] = {
 	{ "bq24190", BQ24190_REG_VPRS_PN_24190 },
+	{ "bq24193", BQ24190_REG_VPRS_PN_24192 },
 	{ },
 };
 MODULE_DEVICE_TABLE(i2c, bq24190_i2c_ids);
@@ -1486,6 +1889,7 @@ MODULE_DEVICE_TABLE(i2c, bq24190_i2c_ids);
 #ifdef CONFIG_OF
 static const struct of_device_id bq24190_of_match[] = {
 	{ .compatible = "ti,bq24190", },
+	{ .compatible = "ti,bq24193", },
 	{ },
 };
 MODULE_DEVICE_TABLE(of, bq24190_of_match);

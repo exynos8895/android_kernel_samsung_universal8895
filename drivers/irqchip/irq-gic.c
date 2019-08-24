@@ -307,22 +307,44 @@ static int gic_set_affinity(struct irq_data *d, const struct cpumask *mask_val,
 	u32 val, mask, bit;
 	unsigned long flags;
 
-	if (!force)
-		cpu = cpumask_any_and(mask_val, cpu_online_mask);
-	else
-		cpu = cpumask_first(mask_val);
-
-	if (cpu >= NR_GIC_CPU_IF || cpu >= nr_cpu_ids)
-		return -EINVAL;
-
 	raw_spin_lock_irqsave(&irq_controller_lock, flags);
+	if (unlikely(d->common->state_use_accessors & IRQD_GIC_MULTI_TARGET)) {
+		struct cpumask temp_mask;
+
+		bit = 0;
+		if (!cpumask_and(&temp_mask, mask_val, cpu_online_mask))
+			goto err_out;
+#ifdef CONFIG_SCHED_HMP
+		if (!cpumask_and(&temp_mask, &temp_mask, cpu_coregroup_mask(0)))
+			goto err_out;
+#endif
+		for_each_cpu(cpu, &temp_mask) {
+			if (cpu >= NR_GIC_CPU_IF || cpu >= nr_cpu_ids)
+				goto err_out;
+			bit |= gic_cpu_map[cpu];
+		}
+		bit <<= shift;
+	} else {
+		if (!force)
+			cpu = cpumask_any_and(mask_val, cpu_online_mask);
+		else
+			cpu = cpumask_first(mask_val);
+
+		if (cpu >= NR_GIC_CPU_IF || cpu >= nr_cpu_ids)
+			goto err_out;
+
+		bit = gic_cpu_map[cpu] << shift;
+	}
 	mask = 0xff << shift;
-	bit = gic_cpu_map[cpu] << shift;
 	val = readl_relaxed(reg) & ~mask;
 	writel_relaxed(val | bit, reg);
 	raw_spin_unlock_irqrestore(&irq_controller_lock, flags);
 
 	return IRQ_SET_MASK_OK;
+
+err_out:
+	raw_spin_unlock_irqrestore(&irq_controller_lock, flags);
+	return -EINVAL;
 }
 #endif
 
@@ -335,6 +357,8 @@ static void __exception_irq_entry gic_handle_irq(struct pt_regs *regs)
 	do {
 		irqstat = readl_relaxed(cpu_base + GIC_CPU_INTACK);
 		irqnr = irqstat & GICC_IAR_INT_ID_MASK;
+
+		dmb(ish);
 
 		if (likely(irqnr > 15 && irqnr < 1021)) {
 			if (static_key_true(&supports_deactivate))
@@ -392,6 +416,8 @@ static void gic_handle_cascade_irq(struct irq_desc *desc)
 
 static struct irq_chip gic_chip = {
 	.name			= "GIC",
+	.irq_disable		= gic_mask_irq,
+	.irq_enable		= gic_unmask_irq,
 	.irq_mask		= gic_mask_irq,
 	.irq_unmask		= gic_unmask_irq,
 	.irq_eoi		= gic_eoi_irq,
@@ -930,7 +956,7 @@ void __init gic_init_physaddr(struct device_node *node)
 #define gic_init_physaddr(node)  do { } while (0)
 #endif
 
-static int gic_irq_domain_map(struct irq_domain *d, unsigned int irq,
+int gic_irq_domain_map(struct irq_domain *d, unsigned int irq,
 				irq_hw_number_t hw)
 {
 	struct irq_chip *chip = &gic_chip;
@@ -1039,6 +1065,11 @@ static const struct irq_domain_ops gic_irq_domain_ops = {
 	.map = gic_irq_domain_map,
 	.unmap = gic_irq_domain_unmap,
 };
+
+struct irq_domain *gic_get_root_irqdomain(unsigned int gic_nr)
+{
+	return (struct irq_domain *)gic_data[gic_nr].domain;
+}
 
 static void __init __gic_init_bases(unsigned int gic_nr, int irq_start,
 			   void __iomem *dist_base, void __iomem *cpu_base,

@@ -164,7 +164,7 @@ static int ccm_encrypt(struct aead_request *req)
 	if (err)
 		return err;
 
-	kernel_neon_begin_partial(6);
+	kernel_neon_begin();
 
 	if (req->assoclen)
 		ccm_calculate_auth_mac(req, mac);
@@ -229,7 +229,7 @@ static int ccm_decrypt(struct aead_request *req)
 	if (err)
 		return err;
 
-	kernel_neon_begin_partial(6);
+	kernel_neon_begin();
 
 	if (req->assoclen)
 		ccm_calculate_auth_mac(req, mac);

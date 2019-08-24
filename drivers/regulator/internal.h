@@ -30,6 +30,9 @@ struct regulator {
 	int min_uV;
 	int max_uV;
 	char *supply_name;
+#ifdef CONFIG_SEC_PM
+	int enabled;
+#endif
 	struct device_attribute dev_attr;
 	struct regulator_dev *rdev;
 	struct dentry *debugfs;

@@ -182,6 +182,9 @@ struct samsung_pin_bank {
  * struct samsung_pin_ctrl: represent a pin controller.
  * @pin_banks: list of pin banks included in this controller.
  * @nr_banks: number of pin banks.
+ * @weint_fltcon: offset of the ext-wakeup filter controller registers.
+ * @base: starting system wide pin number.
+ * @nr_pins: number of pins supported by the controller.
  * @eint_gpio_init: platform specific callback to setup the external gpio
  *	interrupts for the controller.
  * @eint_wkup_init: platform specific callback to setup the external wakeup
@@ -190,6 +193,8 @@ struct samsung_pin_bank {
 struct samsung_pin_ctrl {
 	const struct samsung_pin_bank_data *pin_banks;
 	u32		nr_banks;
+
+	u32		weint_fltcon;
 
 	int		(*eint_gpio_init)(struct samsung_pinctrl_drv_data *);
 	int		(*eint_wkup_init)(struct samsung_pinctrl_drv_data *);
@@ -234,6 +239,10 @@ struct samsung_pinctrl_drv_data {
 
 	void (*suspend)(struct samsung_pinctrl_drv_data *);
 	void (*resume)(struct samsung_pinctrl_drv_data *);
+
+	struct pinctrl      *pinctrl;
+	struct pinctrl_state    *pins_default;
+	struct pinctrl_state    *pins_sleep;
 };
 
 /**
@@ -273,11 +282,12 @@ extern const struct samsung_pin_ctrl exynos5260_pin_ctrl[];
 extern const struct samsung_pin_ctrl exynos5420_pin_ctrl[];
 extern const struct samsung_pin_ctrl exynos5433_pin_ctrl[];
 extern const struct samsung_pin_ctrl exynos7_pin_ctrl[];
+extern const struct samsung_pin_ctrl exynos8890_pin_ctrl[];
+extern const struct samsung_pin_ctrl exynos8895_pin_ctrl[];
 extern const struct samsung_pin_ctrl s3c64xx_pin_ctrl[];
 extern const struct samsung_pin_ctrl s3c2412_pin_ctrl[];
 extern const struct samsung_pin_ctrl s3c2416_pin_ctrl[];
 extern const struct samsung_pin_ctrl s3c2440_pin_ctrl[];
 extern const struct samsung_pin_ctrl s3c2450_pin_ctrl[];
 extern const struct samsung_pin_ctrl s5pv210_pin_ctrl[];
-
 #endif /* __PINCTRL_SAMSUNG_H */

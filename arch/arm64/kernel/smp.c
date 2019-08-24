@@ -37,6 +37,8 @@
 #include <linux/completion.h>
 #include <linux/of.h>
 #include <linux/irq_work.h>
+#include <linux/exynos-ss.h>
+#include <linux/exynos-sdm.h>
 
 #include <asm/alternative.h>
 #include <asm/atomic.h>
@@ -70,10 +72,12 @@ struct secondary_data secondary_data;
 enum ipi_msg_type {
 	IPI_RESCHEDULE,
 	IPI_CALL_FUNC,
+	IPI_CALL_FUNC_SINGLE,
 	IPI_CPU_STOP,
 	IPI_TIMER,
 	IPI_IRQ_WORK,
-	IPI_WAKEUP
+	IPI_WAKEUP,
+	IPI_SGI_15_IRQ = 15
 };
 
 /*
@@ -128,6 +132,7 @@ int __cpu_up(unsigned int cpu, struct task_struct *idle)
 	secondary_data.task = NULL;
 #endif
 	secondary_data.stack = NULL;
+	restore_pcpu_tick(cpu);
 
 	return ret;
 }
@@ -289,6 +294,8 @@ void __cpu_die(unsigned int cpu)
 	if (err)
 		pr_warn("CPU%d may not have shut down cleanly: %d\n",
 			cpu, err);
+
+	save_pcpu_tick(cpu);
 }
 
 /*
@@ -406,8 +413,34 @@ static int __init smp_cpu_setup(int cpu)
 	return 0;
 }
 
+static bool auto_cpu_mapping;
+
+bool arch_find_n_match_cpu_physical_id(struct device_node *cpun,
+					      int cpu, unsigned int *thread)
+{
+	int id;
+
+	if (auto_cpu_mapping) {
+		if (of_property_read_u32(cpun, "logical-id", &id))
+			return false;
+		if (cpu == id)
+			return true;
+	} else {
+		if (of_find_n_match_cpu_property(cpun, "reg", cpu, thread))
+			return true;
+	}
+
+	return false;
+}
+
+u64 __weak get_auto_cpu_hwid(u32 cpu)
+{
+	return INVALID_HWID;
+}
+
+
 static bool bootcpu_valid __initdata;
-static unsigned int cpu_count = 1;
+static unsigned int cpu_count = 0;
 
 #ifdef CONFIG_ACPI
 /*
@@ -487,6 +520,8 @@ acpi_parse_gic_cpu_interface(struct acpi_subtable_header *header,
 #define acpi_table_parse_madt(...)	do { } while (0)
 #endif
 
+extern void get_lot_id(void);
+
 /*
  * Enumerate the possible CPU set from the device tree and build the
  * cpu logical map array containing MPIDR values related to logical
@@ -494,10 +529,24 @@ acpi_parse_gic_cpu_interface(struct acpi_subtable_header *header,
  */
 static void __init of_parse_and_init_cpus(void)
 {
-	struct device_node *dn = NULL;
+	struct device_node *dn;
 
+	if ((dn = of_find_node_by_path("/cpus/auto_cpu_mapping")))
+		auto_cpu_mapping = of_property_read_bool(dn, "enabled");
+
+	get_lot_id();
+
+	dn = NULL;
 	while ((dn = of_find_node_by_type(dn, "cpu"))) {
-		u64 hwid = of_get_cpu_mpidr(dn);
+		u64 hwid;
+
+		if (auto_cpu_mapping) {
+			/*
+			 * Get auto-mapped MPIDR value
+			 */
+			hwid = get_auto_cpu_hwid(cpu_count);
+		} else
+			hwid = of_get_cpu_mpidr(dn);
 
 		if (hwid == INVALID_HWID)
 			goto next;
@@ -523,13 +572,7 @@ static void __init of_parse_and_init_cpus(void)
 
 			bootcpu_valid = true;
 
-			/*
-			 * cpu_logical_map has already been
-			 * initialized and the boot cpu doesn't need
-			 * the enable-method so continue without
-			 * incrementing cpu.
-			 */
-			continue;
+			goto next;
 		}
 
 		if (cpu_count >= NR_CPUS)
@@ -645,6 +688,7 @@ static const char *ipi_types[NR_IPI] __tracepoint_string = {
 #define S(x,s)	[x] = s
 	S(IPI_RESCHEDULE, "Rescheduling interrupts"),
 	S(IPI_CALL_FUNC, "Function call interrupts"),
+	S(IPI_CALL_FUNC_SINGLE, "Single function call interrupts"),
 	S(IPI_CPU_STOP, "CPU stop interrupts"),
 	S(IPI_TIMER, "Timer broadcast interrupts"),
 	S(IPI_IRQ_WORK, "IRQ work interrupts"),
@@ -689,7 +733,7 @@ void arch_send_call_function_ipi_mask(const struct cpumask *mask)
 
 void arch_send_call_function_single_ipi(int cpu)
 {
-	smp_cross_call(cpumask_of(cpu), IPI_CALL_FUNC);
+	smp_cross_call(cpumask_of(cpu), IPI_CALL_FUNC_SINGLE);
 }
 
 #ifdef CONFIG_ARM64_ACPI_PARKING_PROTOCOL
@@ -712,7 +756,7 @@ static DEFINE_RAW_SPINLOCK(stop_lock);
 /*
  * ipi_cpu_stop - handle IPI from smp_send_stop()
  */
-static void ipi_cpu_stop(unsigned int cpu)
+static void ipi_cpu_stop(unsigned int cpu, struct pt_regs *regs)
 {
 	if (system_state == SYSTEM_BOOTING ||
 	    system_state == SYSTEM_RUNNING) {
@@ -726,8 +770,11 @@ static void ipi_cpu_stop(unsigned int cpu)
 
 	local_irq_disable();
 
+	exynos_ss_save_context(regs);
+	exynos_sdm_flush_secdram();
+
 	while (1)
-		cpu_relax();
+		wfi();
 }
 
 /*
@@ -743,6 +790,8 @@ void handle_IPI(int ipinr, struct pt_regs *regs)
 		__inc_irq_stat(cpu, ipi_irqs[ipinr]);
 	}
 
+	exynos_ss_irq(ipinr, handle_IPI, irqs_disabled(), ESS_FLAG_IN);
+
 	switch (ipinr) {
 	case IPI_RESCHEDULE:
 		scheduler_ipi();
@@ -754,9 +803,15 @@ void handle_IPI(int ipinr, struct pt_regs *regs)
 		irq_exit();
 		break;
 
+       case IPI_CALL_FUNC_SINGLE:
+               irq_enter();
+               generic_smp_call_function_single_interrupt();
+               irq_exit();
+               break;
+
 	case IPI_CPU_STOP:
 		irq_enter();
-		ipi_cpu_stop(cpu);
+		ipi_cpu_stop(cpu, regs);
 		irq_exit();
 		break;
 
@@ -784,6 +839,12 @@ void handle_IPI(int ipinr, struct pt_regs *regs)
 		break;
 #endif
 
+	case IPI_SGI_15_IRQ:
+		pr_debug("%s: Interrupt masking bit of core [%dth] is cleared by "
+			"force EL3 to print out kernel panic message.\n"
+			, __func__, smp_processor_id());
+		break;
+
 	default:
 		pr_crit("CPU%u: Unknown IPI message 0x%x\n", cpu, ipinr);
 		break;
@@ -791,6 +852,7 @@ void handle_IPI(int ipinr, struct pt_regs *regs)
 
 	if ((unsigned)ipinr < NR_IPI)
 		trace_ipi_exit_rcuidle(ipi_types[ipinr]);
+	exynos_ss_irq(ipinr, handle_IPI, irqs_disabled(), ESS_FLAG_OUT);
 	set_irq_regs(old_regs);
 }
 
@@ -806,6 +868,8 @@ void tick_broadcast(const struct cpumask *mask)
 }
 #endif
 
+extern const struct cpumask *const cpu_online_mask;
+
 void smp_send_stop(void)
 {
 	unsigned long timeout;
@@ -819,13 +883,16 @@ void smp_send_stop(void)
 		smp_cross_call(&mask, IPI_CPU_STOP);
 	}
 
-	/* Wait up to one second for other CPUs to stop */
-	timeout = USEC_PER_SEC;
+	/* Wait up to 5 seconds for other CPUs to stop */
+	timeout = USEC_PER_SEC * 5;
 	while (num_online_cpus() > 1 && timeout--)
 		udelay(1);
 
-	if (num_online_cpus() > 1)
+	if (num_online_cpus() > 1) {
 		pr_warning("SMP: failed to stop secondary CPUs\n");
+	} else {
+		pr_info("SMP: completed to stop secondary CPUS\n");
+	}
 }
 
 /*
@@ -834,4 +901,40 @@ void smp_send_stop(void)
 int setup_profiling_timer(unsigned int multiplier)
 {
 	return -EINVAL;
+}
+
+static void flush_all_cpu_cache(void *info)
+{
+	flush_cache_louis();
+}
+
+static void flush_all_cluster_cache(void *info)
+{
+	flush_cache_all();
+}
+
+void flush_all_cpu_caches(void)
+{
+	int cpu, cluster, target_cluster = -1;
+	struct cpumask shared_cache_flush_mask;
+
+	preempt_disable();
+	cpu = smp_processor_id();
+	cluster = MPIDR_AFFINITY_LEVEL(cpu_logical_map(cpu), 1);
+	cpumask_clear(&shared_cache_flush_mask);
+
+	/* make cpumask to flush shared cache */
+	for_each_online_cpu(cpu)
+		if (cluster != topology_physical_package_id(cpu) &&
+				target_cluster != topology_physical_package_id(cpu)) {
+			target_cluster = topology_physical_package_id(cpu);
+			cpumask_set_cpu(cpu, &shared_cache_flush_mask);
+		}
+
+	smp_call_function(flush_all_cpu_cache, NULL, 1);
+	smp_call_function_many(&shared_cache_flush_mask,
+			flush_all_cluster_cache, NULL, 1);
+	flush_cache_all();
+
+	preempt_enable();
 }

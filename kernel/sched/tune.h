@@ -1,6 +1,41 @@
 
 #ifdef CONFIG_SCHED_TUNE
 
+#ifdef CONFIG_FREQVAR_SCHEDTUNE
+#include <linux/cpufreq.h>
+#include <linux/cpumask.h>
+#include <linux/of.h>
+
+#define SCHEDTUNE_LOAD_BOOST_UTIT 10
+
+struct freqvar_boost_state {
+	struct freqvar_boost_table *table;
+	bool enabled;	/* boost enabled */
+	int ratio;	/* current boost ratio */
+};
+
+struct freqvar_boost_table {
+	int frequency;
+	int boost;
+};
+
+struct freqvar_boost_data {
+	struct freqvar_boost_table *table;
+};
+
+int schedtune_freqvar_boost(int cpu);
+int schedtune_freqvar_boost_init(struct cpufreq_policy *policy, struct freqvar_boost_data *data);
+int schedtune_freqvar_boost_exit(struct cpufreq_policy *policy, struct freqvar_boost_data *data);
+int schedtune_freqvar_update_table(unsigned int *src, int src_size,
+					struct freqvar_boost_table *dst);
+#else
+static inline int schedtune_freqvar_boost(int cpu) { return 0; }
+static inline int schedtune_freqvar_boost_init(struct cpufreq_policy *policy,
+						struct freqvar_boost_data *data) { return 0; };
+static inline int schedtune_freqvar_boost_exit(struct cpufreq_policy *policy,
+						struct freqvar_boost_data *data) { return 0; };
+#endif
+
 #include <linux/reciprocal_div.h>
 
 /*
@@ -38,7 +73,7 @@ void schedtune_dequeue_task(struct task_struct *p, int cpu);
 
 int schedtune_normalize_energy(int energy);
 int schedtune_accept_deltas(int nrg_delta, int cap_delta,
-			    struct task_struct *task);
+                           struct task_struct *task);
 
 #else /* CONFIG_SCHED_TUNE */
 

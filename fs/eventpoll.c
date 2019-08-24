@@ -310,7 +310,11 @@ struct ctl_table epoll_table[] = {
 
 static const struct file_operations eventpoll_fops;
 
+#if defined(CONFIG_SEC_FD_DETECT)
+int is_file_epoll(struct file *f)
+#else
 static inline int is_file_epoll(struct file *f)
+#endif
 {
 	return f->f_op == &eventpoll_fops;
 }

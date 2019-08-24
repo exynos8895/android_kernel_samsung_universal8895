@@ -237,8 +237,11 @@ __test_page_isolated_in_pageblock(unsigned long pfn, unsigned long end_pfn,
 		else
 			break;
 	}
-	if (pfn < end_pfn)
+	if (pfn < end_pfn) {
+		pr_info("%s: page of pfn %lu is not isolated\n", __func__, pfn);
+		dump_page(pfn_to_page(pfn), "isolation failure");
 		return 0;
+	}
 	return 1;
 }
 

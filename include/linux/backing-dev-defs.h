@@ -142,6 +142,11 @@ struct backing_dev_info {
 
 	char *name;
 
+	/* approximate write throttle statistics - updated at each throttling */
+	unsigned long last_thresh;  /* global/bdi thresh at the last throttle */
+	unsigned long last_nr_dirty; /* global/bdi dirty at the last throttle */
+	unsigned long paused_total; /* approximated sum of pauses. in jiffies */
+
 	unsigned int min_ratio;
 	unsigned int max_ratio, max_prop_frac;
 

@@ -13,6 +13,10 @@
 
 #include <linux/fs.h>
 
+#ifdef CONFIG_EXT4_SEC_CRYPTO_EXTENSION
+#include "crypto_sec.h"
+#endif
+
 #define EXT4_KEY_DESCRIPTOR_SIZE 8
 
 /* Policy provided via an ioctl on the topmost directory */
@@ -25,7 +29,11 @@ struct ext4_encryption_policy {
 } __attribute__((__packed__));
 
 #define EXT4_ENCRYPTION_CONTEXT_FORMAT_V1 1
+
+#ifndef EXT4_KEY_DERIVATION_NONCE_SIZE
 #define EXT4_KEY_DERIVATION_NONCE_SIZE 16
+#define EXT4_ESTIMATED_NONCE_SIZE	EXT4_AES_128_ECB_KEY_SIZE
+#endif
 
 #define EXT4_POLICY_FLAGS_PAD_4		0x00
 #define EXT4_POLICY_FLAGS_PAD_8		0x01
@@ -64,6 +72,8 @@ struct ext4_encryption_context {
 #define EXT4_AES_256_HEH_KEY_SIZE 32
 #define EXT4_AES_256_XTS_KEY_SIZE 64
 #define EXT4_MAX_KEY_SIZE 64
+#define FMP_AES_256_XTS_KEY_SIZE 64
+#define FMP_AES_256_CBC_KEY_SIZE 32
 
 #define EXT4_KEY_DESC_PREFIX "ext4:"
 #define EXT4_KEY_DESC_PREFIX_SIZE 5
@@ -81,6 +91,8 @@ struct ext4_crypt_info {
 	char		ci_flags;
 	struct crypto_ablkcipher *ci_ctfm;
 	char		ci_master_key[EXT4_KEY_DESCRIPTOR_SIZE];
+	char 		raw_key[EXT4_MAX_KEY_SIZE];
+	int		private_enc_mode;
 };
 
 #define EXT4_CTX_REQUIRES_FREE_ENCRYPT_FL             0x00000001
@@ -122,6 +134,11 @@ static inline int ext4_encryption_key_size(int mode)
 		return EXT4_AES_256_CBC_KEY_SIZE;
 	case EXT4_ENCRYPTION_MODE_AES_256_CTS:
 		return EXT4_AES_256_CTS_KEY_SIZE;
+	case FMP_ENCRYPTION_MODE_AES_256_XTS:
+	case EXT4_ENCRYPTION_MODE_PRIVATE:
+		return FMP_AES_256_XTS_KEY_SIZE;
+	case FMP_ENCRYPTION_MODE_AES_256_CBC:
+		return FMP_AES_256_CBC_KEY_SIZE;
 	case EXT4_ENCRYPTION_MODE_AES_256_HEH:
 		return EXT4_AES_256_HEH_KEY_SIZE;
 	default:

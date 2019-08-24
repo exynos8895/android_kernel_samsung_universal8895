@@ -42,6 +42,10 @@ static int tcp_syn_retries_min = 1;
 static int tcp_syn_retries_max = MAX_TCP_SYNCNT;
 static int ip_ping_group_range_min[] = { 0, 0 };
 static int ip_ping_group_range_max[] = { GID_T_MAX, GID_T_MAX };
+static int tcp_delack_seg_min = TCP_DELACK_MIN;
+static int tcp_delack_seg_max = 60;
+static int tcp_use_userconfig_min;
+static int tcp_use_userconfig_max = 1;
 
 /* Update system visible IP port range */
 static void set_local_port_range(struct net *net, int range[2])
@@ -268,6 +272,69 @@ bad_key:
 	kfree(tbl.data);
 	return ret;
 }
+
+#ifdef CONFIG_CLTCP
+#define TCP_CLTCP_IFNAME_MAX	23
+#define TCP_CLTCP_IFDEVS_MAX 	64
+
+static int proc_cltcp_ifdevs(struct ctl_table *ctl, int write,
+				void __user *buffer, size_t *lenp, loff_t *ppos)
+{
+	size_t offs = 0;
+	char ifname[TCP_CLTCP_IFNAME_MAX + 1];
+	char *strbuf = NULL;
+
+	if (!write)
+		return proc_dointvec(ctl, write, buffer, lenp, ppos);
+
+	if (*lenp > (TCP_CLTCP_IFNAME_MAX + 1) * TCP_CLTCP_IFDEVS_MAX ||
+			*lenp < 1) {
+		pr_info("%s: cltcp: lenp=%lu\n", __func__, *lenp);
+		return -EINVAL;
+	}
+
+	strbuf = kzalloc(*lenp + 1, GFP_USER);
+	if (!strbuf)
+		return -ENOMEM;
+
+	if (copy_from_user(strbuf, buffer, *lenp)) {
+		kfree(strbuf);
+		return -EFAULT;
+	}
+
+	sysctl_tcp_cltcp_ifdevs = 0;
+
+	while (offs < *lenp && sscanf(strbuf + offs, "%23s", ifname) > 0) {
+		struct net_device *dev;
+		int len = strlen(ifname);
+
+		if (!len)
+			break;
+
+		rcu_read_lock();
+		dev = dev_get_by_name_rcu(&init_net, ifname);
+		if (dev) {
+			if (dev->ifindex >= 0 && 
+					dev->ifindex < TCP_CLTCP_IFDEVS_MAX) {
+				sysctl_tcp_cltcp_ifdevs |= (1 << dev->ifindex);
+				pr_info("%s: cltcp: ifdev %s added\n", 
+						__func__, ifname);
+			} else {
+				pr_info("%s: cltcp: err! ifindex=%d\n", 
+						__func__, dev->ifindex);
+			}
+		}
+		rcu_read_unlock();
+
+		offs += len;
+		while (offs < *lenp && ((char *)strbuf)[offs] == ' ')
+			offs++;
+	}
+
+	kfree(strbuf);
+	return 0;
+}
+#endif
 
 static struct ctl_table ipv4_table[] = {
 	{
@@ -667,6 +734,22 @@ static struct ctl_table ipv4_table[] = {
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec
 	},
+#ifdef CONFIG_CLTCP
+	{	
+		.procname	= "tcp_cltcp",
+		.data		= &sysctl_tcp_cltcp,	
+		.maxlen 	= sizeof(sysctl_tcp_cltcp),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec
+	},
+	{	
+		.procname	= "tcp_cltcp_ifdevs",
+		.data		= &sysctl_tcp_cltcp_ifdevs,	
+		.maxlen 	= sizeof(sysctl_tcp_cltcp_ifdevs),
+		.mode		= 0644,
+		.proc_handler	= proc_cltcp_ifdevs
+	},
+#endif
 #ifdef CONFIG_NETLABEL
 	{
 		.procname	= "cipso_cache_enable",
@@ -820,6 +903,24 @@ static struct ctl_table ipv4_table[] = {
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec_minmax,
 		.extra1		= &one
+	},
+	{
+		.procname	= "tcp_delack_seg",
+		.data		= &sysctl_tcp_delack_seg,
+		.maxlen		= sizeof(sysctl_tcp_delack_seg),
+		.mode		= 0644,
+		.proc_handler	= tcp_proc_delayed_ack_control,
+		.extra1		= &tcp_delack_seg_min,
+		.extra2		= &tcp_delack_seg_max,
+	},
+	{
+		.procname       = "tcp_use_userconfig",
+		.data           = &sysctl_tcp_use_userconfig,
+		.maxlen         = sizeof(sysctl_tcp_use_userconfig),
+		.mode           = 0644,
+		.proc_handler   = tcp_use_userconfig_sysctl_handler,
+		.extra1		= &tcp_use_userconfig_min,
+		.extra2		= &tcp_use_userconfig_max,
 	},
 	{ }
 };

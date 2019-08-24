@@ -620,8 +620,15 @@ static int dm_blk_ioctl(struct block_device *bdev, fmode_t mode,
 		if (r)
 			goto out;
 	}
+	
+	if(!strcmp(tgt->type->name , "dirty") && 
+	          (tgt->type->ioctl         ) && 
+	          (cmd == 1                 )){
+		r = tgt->type->ioctl(tgt, cmd, arg);
+	}else{
+		r =  __blkdev_driver_ioctl(tgt_bdev, mode, cmd, arg);
+	}
 
-	r =  __blkdev_driver_ioctl(tgt_bdev, mode, cmd, arg);
 out:
 	dm_put_live_table(md, srcu_idx);
 	return r;

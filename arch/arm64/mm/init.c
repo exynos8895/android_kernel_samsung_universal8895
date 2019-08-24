@@ -48,6 +48,9 @@
 #include <asm/alternative.h>
 
 #include "mm.h"
+#ifdef CONFIG_RKP
+#include <linux/rkp.h>
+#endif
 
 /*
  * We need to be able to catch inadvertent references to memstart_addr
@@ -87,11 +90,17 @@ static phys_addr_t __init max_zone_dma_phys(void)
 	return min(offset + (1ULL << 32), memblock_end_of_DRAM());
 }
 
+#ifdef CONFIG_ZONE_MOVABLE
+#define ZONE_MOVABLE_SIZE_BYTES	((u32)(CONFIG_ZONE_MOVABLE_SIZE_MBYTES << 20))
+#endif
 static void __init zone_sizes_init(unsigned long min, unsigned long max)
 {
 	struct memblock_region *reg;
 	unsigned long zone_size[MAX_NR_ZONES], zhole_size[MAX_NR_ZONES];
 	unsigned long max_dma = min;
+#ifdef CONFIG_ZONE_MOVABLE
+	int movable_zone, zone_index;
+#endif
 
 	memset(zone_size, 0, sizeof(zone_size));
 
@@ -123,6 +132,20 @@ static void __init zone_sizes_init(unsigned long min, unsigned long max)
 			zhole_size[ZONE_NORMAL] -= normal_end - normal_start;
 		}
 	}
+
+#ifdef CONFIG_ZONE_MOVABLE
+	for (zone_index = ZONE_MOVABLE - 1; zone_index >= 0; zone_index--) {
+		if (zone_size[zone_index])
+			break;
+	}
+	BUG_ON(zone_index == -1);
+	movable_zone = zone_index;
+
+	zone_size[ZONE_MOVABLE] = ZONE_MOVABLE_SIZE_BYTES >> PAGE_SHIFT;
+	BUG_ON(zone_size[ZONE_MOVABLE] >= zone_size[movable_zone]);
+	zone_size[movable_zone] -= zone_size[ZONE_MOVABLE];
+	zhole_size[ZONE_MOVABLE] = 0;
+#endif
 
 	free_area_init_node(0, zone_size, min, zhole_size);
 }
@@ -433,7 +456,14 @@ void __init mem_init(void)
 void free_initmem(void)
 {
 	free_initmem_default(0);
+#ifdef CONFIG_DEBUG_RODATA
 	fixup_init();
+#endif
+	printk("before of rkp deferred init\n");
+#ifdef CONFIG_RKP
+	rkp_call(RKP_DEF_INIT, 0, 0, 0, 0, 0);
+#endif
+	printk("after of rkp deferred init\n");
 }
 
 #ifdef CONFIG_BLK_DEV_INITRD

@@ -70,21 +70,11 @@ static char *kstrdupcase(const char *str, gfp_t gfp, bool to_upper)
 	return ret;
 }
 
-static void dual_role_changed_work(struct work_struct *work)
-{
-	struct dual_role_phy_instance *dual_role =
-	    container_of(work, struct dual_role_phy_instance,
-			 changed_work);
-
-	dev_dbg(&dual_role->dev, "%s\n", __func__);
-	kobject_uevent(&dual_role->dev.kobj, KOBJ_CHANGE);
-}
-
 void dual_role_instance_changed(struct dual_role_phy_instance *dual_role)
 {
-	dev_dbg(&dual_role->dev, "%s\n", __func__);
+	dev_info(&dual_role->dev, "%s\n", __func__);
 	pm_wakeup_event(&dual_role->dev, DUAL_ROLE_NOTIFICATION_TIMEOUT);
-	schedule_work(&dual_role->changed_work);
+	kobject_uevent(&dual_role->dev.kobj, KOBJ_CHANGE);
 }
 EXPORT_SYMBOL_GPL(dual_role_instance_changed);
 
@@ -152,8 +142,6 @@ __dual_role_register(struct device *parent,
 	if (rc)
 		goto dev_set_name_failed;
 
-	INIT_WORK(&dual_role->changed_work, dual_role_changed_work);
-
 	rc = device_init_wakeup(dev, true);
 	if (rc)
 		goto wakeup_init_failed;
@@ -179,7 +167,6 @@ dev_set_name_failed:
 static void dual_role_instance_unregister(struct dual_role_phy_instance
 					  *dual_role)
 {
-	cancel_work_sync(&dual_role->changed_work);
 	device_init_wakeup(&dual_role->dev, false);
 	device_unregister(&dual_role->dev);
 }
