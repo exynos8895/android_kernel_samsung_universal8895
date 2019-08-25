@@ -42,7 +42,6 @@ struct exynos_ion_platform_heap {
 	unsigned int compat_ids;
 	bool secure;
 	bool reusable;
-	bool recyclable;
 	bool protected;
 	bool noprot;
 	atomic_t secure_ref;
@@ -380,11 +379,6 @@ static int __init exynos_ion_reserved_mem_setup(struct reserved_mem *rmem)
 	pdata = &plat_heaps[nr_heaps];
 	pdata->secure = !!of_get_flat_dt_prop(rmem->fdt_node, "ion,secure", NULL);
 	pdata->reusable = !!of_get_flat_dt_prop(rmem->fdt_node, "ion,reusable", NULL);
-#ifdef CONFIG_ION_RBIN_HEAP
-	pdata->recyclable = !!of_get_flat_dt_prop(rmem->fdt_node, "ion,recyclable", NULL);
-#else
-	pdata->recyclable = false;
-#endif
 	pdata->noprot = !!of_get_flat_dt_prop(rmem->fdt_node, "ion,noprot", NULL);
 
 	prop = of_get_flat_dt_prop(rmem->fdt_node, "id", &len);
@@ -431,14 +425,11 @@ static int __init exynos_ion_reserved_mem_setup(struct reserved_mem *rmem)
 	else
 		heap_data->align = be32_to_cpu(prop[0]);
 
-	if (pdata->reusable || pdata->recyclable) {
+	if (pdata->reusable) {
 		int ret;
 		struct cma *cma;
 
-		if (pdata->reusable)
-			heap_data->type = ION_HEAP_TYPE_DMA;
-		else
-			heap_data->type = ION_HEAP_TYPE_RBIN;
+		heap_data->type = ION_HEAP_TYPE_DMA;
 		heap_data->priv = &pdata->dev;
 
 		/* set as non-coherent device */
@@ -450,25 +441,12 @@ static int __init exynos_ion_reserved_mem_setup(struct reserved_mem *rmem)
 			       __func__, heap_data->name, ret);
 			return ret;
 		}
-		if (pdata->recyclable) {
-			cma_set_rbin(cma);
-			totalrbin_pages += (heap_data->size / PAGE_SIZE);
-			/*
-			 * # of cma pages was increased by this RBIN memory in
-			 * cma_init_reserved_mem_with_name(). Need to deduct.
-			 */
-			totalcma_pages -= (heap_data->size / PAGE_SIZE);
-		}
 
 		dma_contiguous_early_fixup(heap_data->base, heap_data->size);
 
 		dev_set_cma_area(&pdata->dev, cma);
 
-		if (pdata->reusable)
-			pr_info("CMA memory[%d]: %s:%#lx\n", heap_data->id,
-				heap_data->name, (unsigned long)rmem->size);
-		else
-			pr_info("rbin CMA memory[%d]: %s:%#lx\n", heap_data->id,
+		pr_info("CMA memory[%d]: %s:%#lx\n", heap_data->id,
 				heap_data->name, (unsigned long)rmem->size);
 	} else {
 		heap_data->type = ION_HEAP_TYPE_CARVEOUT;
