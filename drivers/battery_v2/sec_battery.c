@@ -6849,7 +6849,7 @@ static int sec_wireless_set_property(struct power_supply *psy,
 				const union power_supply_propval *val)
 {
 	struct sec_battery_info *battery = power_supply_get_drvdata(psy);
-	enum power_supply_ext_property ext_psp = psp;
+	enum power_supply_ext_property ext_psp = (enum power_supply_ext_property) psp;
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_ONLINE:
