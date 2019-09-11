@@ -909,7 +909,7 @@ static ssize_t ic_status_show(struct device *dev,
 	strlcat(buff, temp, sizeof(buff));
 
 	snprintf(temp, sizeof(temp), "singletap,%d,", data[0] & 0x08 ? 1 : 0);
-	strncat(buff, temp, sizeof(temp));
+	strlcat(buff, temp, sizeof(buff));
 
 	data[0] = 0;
 
