@@ -19432,7 +19432,7 @@ _Pragma("GCC diagnostic ignored \"-Wcast-qual\"")
 					channel = wf_chspec_ctlchan(
 						wl_chspec_driver_to_host(chanspec));
 					band = (channel <= CH_MAX_2G_CHANNEL) ?
-						IEEE80211_BAND_2GHZ : IEEE80211_BAND_5GHZ;
+						NL80211_BAND_2GHZ : NL80211_BAND_5GHZ;
 				}
 				if ((!pre_channel && channel)) {
 					pre_band = band;
