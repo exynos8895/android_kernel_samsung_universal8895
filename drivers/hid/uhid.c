@@ -790,7 +790,7 @@ static unsigned int uhid_char_poll(struct file *file, poll_table *wait)
 	if (uhid->head != uhid->tail)
 		return POLLIN | POLLRDNORM;
 
-	return 0;
+	return EPOLLOUT | EPOLLWRNORM;
 }
 
 static const struct file_operations uhid_fops = {
