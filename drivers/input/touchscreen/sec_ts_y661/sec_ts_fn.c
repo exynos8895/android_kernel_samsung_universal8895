@@ -605,7 +605,7 @@ static ssize_t read_pressure_raw_check_show(struct device *dev,
 			char tmp[20] = {0};
 			snprintf(tmp, sizeof(tmp), "\"TP%02d%c\":\"%d\"",
 					data[i], loc[j], ts->pressure_data[data[i]][j]);
-			strncat(buff, tmp, sizeof(tmp));
+			strlcat(buff, tmp, sizeof(buff));
 			if (i < 3 || j < PRESSURE_CHANNEL_NUM - 1)
 				strncat(buff, ",", 2);
 		}
@@ -705,7 +705,7 @@ static ssize_t get_lp_dump(struct device *dev, struct device_attribute *attr, ch
 			snprintf(buff, sizeof(buff),
 					"%d: %04x%04x%04x%04x\n",
 					string_addr, data0, data1, data2, data3);
-			strncat(buf, buff, sizeof(buff));
+			strlcat(buf, buff, sizeof(buf));
 		}
 	}
 
@@ -3261,7 +3261,7 @@ static void clear_cover_mode(void *device_data)
 #endif
 		}
 
-		if (!ts->power_status == SEC_TS_STATE_POWER_OFF && ts->reinit_done) {
+		if (!(ts->power_status == SEC_TS_STATE_POWER_OFF) && ts->reinit_done) {
 			if (ts->flip_enable)
 				sec_ts_set_cover_type(ts, true);
 			else
