@@ -3748,7 +3748,7 @@
 				thrd_mb = <0>;
 				freq_mfc = <89000>;
 				freq_int = <107000>;
-				freq_mif = <286000>;
+				freq_mif = <208000>;
 				freq_cpu = <0>;
 				freq_kfc = <0>;
 				mo_value = <0>;
@@ -3757,9 +3757,9 @@
 			};
 			mfc_qos_variant_1 {
 				thrd_mb = <259787>;
-				freq_mfc = <267000>;
-				freq_int = <267000>;
-				freq_mif = <421000>;
+				freq_mfc = <178000>;
+				freq_int = <178000>;
+				freq_mif = <286000>;
 				freq_cpu = <0>;
 				freq_kfc = <0>;
 				mo_value = <0>;
@@ -3768,9 +3768,9 @@
 			};
 			mfc_qos_variant_2 {
 				thrd_mb = <535550>;
-				freq_mfc = <400000>;
-				freq_int = <400000>;
-				freq_mif = <845000>;
+				freq_mfc = <178000>;
+				freq_int = <178000>;
+				freq_mif = <421000>;
 				freq_cpu = <0>;
 				freq_kfc = <0>;
 				mo_value = <0>;
@@ -3779,9 +3779,9 @@
 			};
 			mfc_qos_variant_3 {
 				thrd_mb = <1153791>;
-				freq_mfc = <400000>;
-				freq_int = <400000>;
-				freq_mif = <1352000>;
+				freq_mfc = <267000>;
+				freq_int = <267000>;
+				freq_mif = <546000>;
 				freq_cpu = <0>;
 				freq_kfc = <0>;
 				mo_value = <0>;
@@ -3790,9 +3790,9 @@
 			};
 			mfc_qos_variant_4 {
 				thrd_mb = <1884284>;
-				freq_mfc = <667000>;
-				freq_int = <533000>;
-				freq_mif = <1794000>;
+				freq_mfc = <400000>;
+				freq_int = <400000>;
+				freq_mif = <676000>;
 				freq_cpu = <0>;
 				freq_kfc = <0>;
 				mo_value = <0>;
@@ -3801,9 +3801,9 @@
 			};
 			mfc_qos_variant_5 {
 				thrd_mb = <2713968>;
-				freq_mfc = <667000>;
-				freq_int = <533000>;
-				freq_mif = <1014000>;
+				freq_mfc = <400000>;
+				freq_int = <400000>;
+				freq_mif = <845000>;
 				freq_cpu = <0>;
 				freq_kfc = <0>;
 				mo_value = <1>;
@@ -3812,9 +3812,9 @@
 			};
 			mfc_qos_variant_6 {
 				thrd_mb = <3267739>;
-				freq_mfc = <667000>;
+				freq_mfc = <533000>;
 				freq_int = <533000>;
-				freq_mif = <1794000>;
+				freq_mif = <1014000>;
 				freq_cpu = <0>;
 				freq_kfc = <0>;
 				mo_value = <1>;
