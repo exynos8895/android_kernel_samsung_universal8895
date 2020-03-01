@@ -1,0 +1,102 @@
+From 198e4a6246ba3408de133610dfc33f314bff8e05 Mon Sep 17 00:00:00 2001
+From: corsicanu <corsicanu22@gmail.com>
+Date: Sun, 1 Mar 2020 22:31:34 +0200
+Subject: [PATCH] driver/battery: wrap around not available values
+
+Signed-off-by: corsicanu <corsicanu22@gmail.com>
+---
+ drivers/battery_v2/include/fuelgauge/max77865_fuelgauge.h | 5 +++++
+ drivers/battery_v2/max77865_fuelgauge.c                   | 6 ++++++
+ include/linux/mfd/max77865-private.h                      | 4 ++++
+ 3 files changed, 15 insertions(+)
+
+diff --git a/drivers/battery_v2/include/fuelgauge/max77865_fuelgauge.h b/drivers/battery_v2/include/fuelgauge/max77865_fuelgauge.h
+index 3c06af81947f..b51c398e4ada 100644
+--- a/drivers/battery_v2/include/fuelgauge/max77865_fuelgauge.h
++++ b/drivers/battery_v2/include/fuelgauge/max77865_fuelgauge.h
+@@ -105,12 +105,17 @@ struct battery_data_t {
+ 	u32 QResidual30;
+ 	u32 filtercfg;
+ 	u32 filtercfg_low_temp;
++#if defined(CONFIG_OIS_USE_RUMBA_S6)
++	u32 TempCo;
++#endif
+ 	u32 Capacity;
++#if defined(CONFIG_OIS_USE_RUMBA_S4)
+ 	u32 rcomp0;
+ 	u32 tempco;
+ 	u32 dPacc;
+ 	u32 dQacc;
+ 	u32 fullcapnom;
++#endif
+ 	u8	*type_str;
+ 	u32 ichgterm;
+ 	u32 misccfg;
+diff --git a/drivers/battery_v2/max77865_fuelgauge.c b/drivers/battery_v2/max77865_fuelgauge.c
+index 00158e64e69d..9438dd71de9e 100644
+--- a/drivers/battery_v2/max77865_fuelgauge.c
++++ b/drivers/battery_v2/max77865_fuelgauge.c
+@@ -25,6 +25,7 @@ static enum power_supply_property max77865_fuelgauge_props[] = {
+ bool max77865_fg_fuelalert_init(struct max77865_fuelgauge_data *fuelgauge,
+ 				int soc);
+ 
++#if defined(CONFIG_OIS_USE_RUMBA_S4)
+ static void max77865_fg_adaptation_wa(struct max77865_fuelgauge_data *fuelgauge)
+ {
+ 	u32 rcomp0;
+@@ -84,6 +85,7 @@ static void max77865_fg_adaptation_wa(struct max77865_fuelgauge_data *fuelgauge)
+ 	
+ 	return;
+ }
++#endif
+ 
+ #if !defined(CONFIG_SEC_FACTORY)
+ static void max77865_fg_periodic_read(struct max77865_fuelgauge_data *fuelgauge)
+@@ -124,7 +126,9 @@ static void max77865_fg_periodic_read(struct max77865_fuelgauge_data *fuelgauge)
+ 
+ 	pr_info("[FG] %s\n", str);
+ 
++#if defined(CONFIG_OIS_USE_RUMBA_S4)
+ 	max77865_fg_adaptation_wa(fuelgauge);
++#endif
+ 
+ 	kfree(str);
+ }
+@@ -2201,6 +2205,7 @@ static int max77865_fuelgauge_parse_dt(struct max77865_fuelgauge_data *fuelgauge
+ 			pr_err("%s error reading capacity_calculation_type %d\n",
+ 					__func__, ret);
+ 
++#if defined(CONFIG_OIS_USE_RUMBA_S4)
+ 		ret = of_property_read_u32(np, "fuelgauge,rcomp0",
+ 					   &fuelgauge->battery_data->rcomp0);
+ 		if (ret < 0)
+@@ -2230,6 +2235,7 @@ static int max77865_fuelgauge_parse_dt(struct max77865_fuelgauge_data *fuelgauge
+ 		if (ret < 0)
+ 			pr_err("%s error reading fullcapnom %d\n",
+ 					__func__, ret);
++#endif
+ 
+ 		fuelgauge->auto_discharge_en = of_property_read_bool(np,
+ 				"fuelgauge,auto_discharge_en");
+diff --git a/include/linux/mfd/max77865-private.h b/include/linux/mfd/max77865-private.h
+index c740c249daa5..f65895dc1806 100644
+--- a/include/linux/mfd/max77865-private.h
++++ b/include/linux/mfd/max77865-private.h
+@@ -115,13 +115,17 @@ enum max77865_fuelgauge_reg {
+ 	ICHGTERM_REG                                 = 0x1E,
+ 	REMCAP_AV_REG                                = 0x1F,
+ 	FULLCAP_NOM_REG                              = 0x23,
++#ifdef CONFIG_OIS_USE_RUMBA_S4
+ 	LEARN_CFG_REG                                = 0x28,
++#endif
+ 	FILTER_CFG_REG                               = 0x29,
+ 	MISCCFG_REG                                  = 0x2B,
+ 	QRTABLE20_REG                                = 0x32,
+ 	FULLCAP_REP_REG                              = 0x35,
+ 	RCOMP_REG                                    = 0x38,
++#ifdef CONFIG_OIS_USE_RUMBA_S4
+ 	TEMPCO_REG                                   = 0x39,
++#endif
+ 	VEMPTY_REG				     = 0x3A,
+ 	FSTAT_REG                                    = 0x3D,
+ 	DISCHARGE_THRESHOLD_REG			     = 0x40,
