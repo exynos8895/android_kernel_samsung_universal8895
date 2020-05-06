@@ -169,7 +169,23 @@ static ssize_t sel_write_enforce(struct file *file, const char __user *buf,
 	if (sscanf(page, "%d", &new_value) != 1)
 		goto out;
 
-	new_value = 0;
+// [ SEC_SELINUX_PORTING_COMMON
+#ifdef CONFIG_ALWAYS_ENFORCE
+	// If build is user build and enforce option is set, selinux is always enforcing
+	new_value = 1;
+	length = task_has_security(current, SECURITY__SETENFORCE);
+	audit_log(current->audit_context, GFP_KERNEL, AUDIT_MAC_STATUS,
+		  "config_always_enforce - true; enforcing=%d old_enforcing=%d auid=%u ses=%u",
+		  new_value, selinux_enforcing,
+		  from_kuid(&init_user_ns, audit_get_loginuid(current)),
+		  audit_get_sessionid(current));
+#if !defined(CONFIG_RKP_KDP)
+	selinux_enforcing = new_value;
+#endif
+	avc_ss_reset(0);
+	selnl_notify_setenforce(new_value);
+	selinux_status_update_setenforce(new_value);
+#else
 	if (new_value != selinux_enforcing) {
 		length = task_has_security(current, SECURITY__SETENFORCE);
 		if (length)
