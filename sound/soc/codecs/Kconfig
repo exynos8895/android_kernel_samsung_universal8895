@@ -533,7 +533,7 @@ config SND_SOC_MAX98925
        tristate
 
 config SND_SOC_MAX98506
-	bool "Support MAX98506"
+	tristate "Support MAX98506"
 	depends on I2C
 	help
 	MAX98506 driver
