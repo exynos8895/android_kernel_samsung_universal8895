@@ -354,7 +354,6 @@ int fmp_ufs_map_sg(struct ufshcd_sg_entry *prd_table, struct scatterlist *sg,
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(fmp_map_sg);
 
 #if defined(CONFIG_FIPS_FMP)
 #if defined(CONFIG_UFS_FMP_ECRYPT_FS) || defined(CONFIG_UFS_FMP_EXT4CRYPT_FS)
