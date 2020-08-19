@@ -67,6 +67,7 @@
 	set_qos(&_this->kfc_qos, PM_QOS_CLUSTER0_FREQ_MIN/*PM_QOS_KFC_FREQ_MIN*/, _this->param[_this->index].kfc_freq);  \
 	set_qos(&_this->mif_qos, PM_QOS_BUS_THROUGHPUT, _this->param[_this->index].mif_freq);  \
 	set_qos(&_this->int_qos, PM_QOS_DEVICE_THROUGHPUT, _this->param[_this->index].int_freq);  \
+	set_qos(&_this->dma_lat_qos, PM_QOS_CPU_DMA_LATENCY, 100);  \
 }
 #define REMOVE_BOOSTER  { \
 	int value = INPUT_BOOSTER_NULL; \
@@ -80,6 +81,7 @@
 	remove_qos(&_this->kfc_qos);  \
 	remove_qos(&_this->mif_qos);  \
 	remove_qos(&_this->int_qos);  \
+	remove_qos(&_this->dma_lat_qos);  \
 }
 #define PROPERTY_BOOSTER(_device_param_, _dt_param_, _time_)  { \
 	_device_param_.cpu_freq = _dt_param_.cpu_freq; \
@@ -450,6 +452,7 @@ struct t_input_booster {
 	struct pm_qos_request	kfc_qos;
 	struct pm_qos_request	mif_qos;
 	struct pm_qos_request	int_qos;
+	struct pm_qos_request	dma_lat_qos;
 
 	struct delayed_work     input_booster_timeout_work[2];
 	struct work_struct      input_booster_set_booster_work;
