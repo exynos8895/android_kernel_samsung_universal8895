@@ -10,6 +10,8 @@
  * published by the Free Software Foundation.
  */
 
+#define SEC_TS_DEBUG 0
+
 struct sec_ts_data *tsp_info;
 
 #include "sec_ts.h"
@@ -1236,6 +1238,7 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 							ts->check_multi = 0;
 						}
 
+#if SEC_TS_DEBUG
 #if !defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
 						input_info(true, &ts->client->dev,
 								"%s[R] tID:%d mc:%d tc:%d lx:%d ly:%d f:%d v:%02X%02X cal:%02X(%02X) id(%d,%d) p:%d noise:%x lp:(%x/%d) P%02XT%04X F%02X%02X D%05X\n",
@@ -1265,6 +1268,7 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 								ts->cal_count, ts->tune_fix_ver,
 								ts->pressure_cal_base, ts->pressure_cal_delta,
 								ts->defect_probability);
+#endif
 #endif
 						ts->coord[t_id].action = SEC_TS_COORDINATE_ACTION_NONE;
 						ts->coord[t_id].mcount = 0;
@@ -1405,6 +1409,7 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 
 						if (sponge[1] & SEC_TS_MODE_SPONGE_AOD) {
 							ts->scrub_id = SPONGE_EVENT_TYPE_AOD_DOUBLETAB;
+#if SEC_TS_DEBUG
 #ifdef CONFIG_SAMSUNG_PRODUCT_SHIP
 							input_info(true, &ts->client->dev, "%s: aod: %d\n",
 								__func__, ts->scrub_id);
@@ -1412,14 +1417,17 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 							input_info(true, &ts->client->dev, "%s: aod: %d, %d, %d\n",
 								__func__, ts->scrub_id, ts->scrub_x, ts->scrub_y);
 #endif
+#endif
 						} else if (sponge[1] & SEC_TS_MODE_SPONGE_SINGLE_TAP) {
 							ts->scrub_id = SPONGE_EVENT_TYPE_SINGLE_TAP;
+#if SEC_TS_DEBUG
 #ifdef CONFIG_SAMSUNG_PRODUCT_SHIP
 							input_info(true, &ts->client->dev, "%s: singletap: %d\n",
 								__func__, ts->scrub_id);
 #else
 							input_info(true, &ts->client->dev, "%s: singletap: %d, %d, %d\n",
 								__func__, ts->scrub_id, ts->scrub_x, ts->scrub_y);
+#endif
 #endif
 						}
 						ts->all_aod_tap_count++;
