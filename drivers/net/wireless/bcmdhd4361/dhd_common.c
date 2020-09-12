@@ -3836,7 +3836,7 @@ dhd_pktfilter_offload_set(dhd_pub_t * dhd, char *arg)
 					htod16(WL_PKT_FILTER_MFLAG_NEG);
 				(argv[i])++;
 			}
-			if (argv[i] == '\0') {
+			if (argv[i] == NULL) {
 				printf("Pattern not provided\n");
 				goto fail;
 			}

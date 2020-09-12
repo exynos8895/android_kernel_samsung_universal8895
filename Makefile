@@ -760,6 +760,8 @@ KBUILD_CFLAGS += $(call cc-option, -mno-global-merge,)
 KBUILD_CFLAGS += $(call cc-option, -fcatch-undefined-behavior)
 KBUILD_CFLAGS += $(call cc-option, -no-integrated-as)
 KBUILD_AFLAGS += $(call cc-option, -no-integrated-as)
+KBUILD_CFLAGS += $(call cc-option, -fno-builtin-bcmp)
+KBUILD_AFLAGS += $(call cc-option, -fno-builtin-bcmp)
 else
 
 # These warnings generated too much noise in a regular build.
@@ -829,6 +831,9 @@ CHECKFLAGS     += $(NOSTDINC_FLAGS)
 
 # warn about C99 declaration after statement
 KBUILD_CFLAGS += $(call cc-option,-Wdeclaration-after-statement,)
+
+# warn about bad indentation
+KBUILD_CFLAGS += $(call cc-option,-Wmisleading-indentation,)
 
 # disable pointer signed / unsigned warnings in gcc 4.0
 KBUILD_CFLAGS += $(call cc-disable-warning, pointer-sign)

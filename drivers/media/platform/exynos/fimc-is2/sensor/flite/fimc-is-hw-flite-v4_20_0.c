@@ -543,4 +543,3 @@ void flite_hw_dump(u32 __iomem *base_reg)
 	info("[0x%04X] : 0x%08X\n", FLITE_REG_WEIGHTY23, readl(base_reg + TO_WORD_OFFSET(FLITE_REG_WEIGHTY23)));
 }
 
-

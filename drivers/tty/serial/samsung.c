@@ -1688,41 +1688,49 @@ static ssize_t s3c24xx_serial_bt_log(struct file *file, char __user *userbuf, si
 	static int copied_bytes = 0;
 
 	if (copied_bytes >= LOG_BUFFER_SIZE) {
+
 		struct uart_port *port;
 
 		port = &ourport->port;
 
 		copied_bytes = 0;
 
-        if (port && port->state->pm_state == UART_PM_STATE_ON)
-    		s3c24xx_print_reg_status(ourport);
-		return 0;
+		if (port && port->state->pm_state == UART_PM_STATE_ON) {
+			s3c24xx_print_reg_status(ourport);
+			return 0;
+		}
+
 	}
 
 	if (copied_bytes + bytes < LOG_BUFFER_SIZE) {
+		
 		ret = copy_to_user(userbuf, ourport->uart_local_buf.buffer+copied_bytes, bytes);
-		if(ret)
-		{
+		
+		if(ret) {
 			pr_err("Failed to s3c24xx_serial_bt_log : %d\n", (int)ret);
 			return ret;
 		}
+		
 		copied_bytes += bytes;
 		return bytes;
+		
 	} else {
 		int byte_to_read = LOG_BUFFER_SIZE-copied_bytes;
 
 		ret = copy_to_user(userbuf, ourport->uart_local_buf.buffer+copied_bytes, byte_to_read);
-		if(ret)
-		{
+		
+		if(ret) {
 			pr_err("Failed to s3c24xx_serial_bt_log : %d\n", (int)ret);
 			return ret;
 		}
+		
 		copied_bytes += byte_to_read;
 		return byte_to_read;
 	}
 
 	return 0;
 }
+
 static const struct file_operations proc_fops_btlog = {
 	.owner = THIS_MODULE,
 	.read = s3c24xx_serial_bt_log,

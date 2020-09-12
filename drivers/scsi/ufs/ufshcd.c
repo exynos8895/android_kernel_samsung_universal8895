@@ -7572,7 +7572,7 @@ static struct devfreq_dev_profile ufs_devfreq_profile = {
 static void ufs_sec_send_errinfo (void *data) {
 	static struct ufs_hba *hba = NULL;
 	struct SEC_UFS_counting *err_info;
-	char buf[16];
+	char buf[17];
 
 	if (data) {
 		hba = (struct ufs_hba *)data;
