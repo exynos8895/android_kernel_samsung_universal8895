@@ -899,7 +899,7 @@ void smp_send_stop(void)
 	while (num_other_online_cpus() && timeout--)
 		udelay(1);
 
-	if (num_other_online_cpus())
+	if (num_other_online_cpus()) {
 		pr_warning("SMP: failed to stop secondary CPUs\n");
 	} else {
 		pr_info("SMP: completed to stop secondary CPUS\n");
