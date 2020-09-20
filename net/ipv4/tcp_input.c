@@ -4814,7 +4814,10 @@ static void tcp_drop(struct sock *sk, struct sk_buff *skb)
 /* This one checks to see if we can put data from the
  * out_of_order queue into the receive_queue.
  */
-static void tcp_ofo_queue(struct sock *sk)
+#ifndef CONFIG_MPTCP
+static
+#endif
+void tcp_ofo_queue(struct sock *sk)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 	__u32 dsack_high = tp->rcv_nxt;
@@ -4904,8 +4907,10 @@ static int tcp_try_rmem_schedule(struct sock *sk, struct sk_buff *skb,
 	}
 	return 0;
 }
-
-static void tcp_data_queue_ofo(struct sock *sk, struct sk_buff *skb)
+#ifndef CONFIG_MPTCP
+static
+#endif
+void tcp_data_queue_ofo(struct sock *sk, struct sk_buff *skb)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct rb_node **p, *q, *parent;
@@ -5276,10 +5281,6 @@ static struct sk_buff *tcp_collapse_one(struct sock *sk, struct sk_buff *skb,
 	else
 		rb_erase(&skb->rbnode, root);
 
-#ifdef CONFIG_MPTCP
-	if (mptcp(tcp_sk(sk)))
-		mptcp_remove_shortcuts(tcp_sk(sk)->mpcb, skb);
-#endif
 	__kfree_skb(skb);
 	NET_INC_STATS_BH(sock_net(sk), LINUX_MIB_TCPRCVCOLLAPSED);
 

@@ -471,6 +471,8 @@ int __must_check tcp_queue_rcv(struct sock *sk, struct sk_buff *skb, int hdrlen,
 bool tcp_try_coalesce(struct sock *sk, struct sk_buff *to,
 		      struct sk_buff *from, bool *fragstolen);
 void tcp_copy_sk(struct sock *nsk, const struct sock *osk);
+void tcp_ofo_queue(struct sock *sk);
+void tcp_data_queue_ofo(struct sock *sk, struct sk_buff *skb);
 /**** END - Exports needed for MPTCP ****/
 #endif
 
