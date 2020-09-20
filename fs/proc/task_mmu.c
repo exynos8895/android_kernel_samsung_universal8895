@@ -163,7 +163,7 @@ static void seq_print_vma_name(struct seq_file *m, struct vm_area_struct *vma)
 		struct page *page;
 
 		pages_pinned = get_user_pages(current, mm, page_start_vaddr,
-				1, 0, 0, &page, NULL);
+				1, 0, &page, NULL);
 		if (pages_pinned < 1) {
 			seq_puts(m, "<fault>]");
 			return;
@@ -400,7 +400,7 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
 			goto done;
 		}
 
-		if (is_stack(priv, vma, is_pid)) {
+		if (is_stack(priv, vma)) {
 			name = "[stack]";
 			goto done;
 		}
