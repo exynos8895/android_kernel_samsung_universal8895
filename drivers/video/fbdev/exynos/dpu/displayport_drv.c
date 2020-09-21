@@ -165,7 +165,7 @@ static int displayport_full_link_training(void)
 {
 	u8 link_rate;
 	u8 lane_cnt;
-	u8 training_aux_rd_interval;
+	u8 training_aux_rd_interval = 1;
 	u8 pre_emphasis[MAX_LANE_CNT];
 	u8 drive_current[MAX_LANE_CNT];
 	u8 voltage_swing_lane[MAX_LANE_CNT];
