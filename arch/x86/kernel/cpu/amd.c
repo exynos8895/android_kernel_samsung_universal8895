@@ -532,12 +532,12 @@ static void bsp_init_amd(struct cpuinfo_x86 *c)
 		}
 		/*
 		 * Try to cache the base value so further operations can
-		 * avoid RMW. If that faults, do not enable RDS.
+		 * avoid RMW. If that faults, do not enable SSBD.
 		 */
 		if (!rdmsrl_safe(MSR_AMD64_LS_CFG, &x86_amd_ls_cfg_base)) {
-			setup_force_cpu_cap(X86_FEATURE_RDS);
-			setup_force_cpu_cap(X86_FEATURE_AMD_RDS);
-			x86_amd_ls_cfg_rds_mask = 1ULL << bit;
+			setup_force_cpu_cap(X86_FEATURE_LS_CFG_SSBD);
+			setup_force_cpu_cap(X86_FEATURE_SSBD);
+			x86_amd_ls_cfg_ssbd_mask = 1ULL << bit;
 		}
 	}
 }
@@ -780,11 +780,13 @@ static void init_amd_bd(struct cpuinfo_x86 *c)
 
 static void init_amd_zn(struct cpuinfo_x86 *c)
 {
+	set_cpu_cap(c, X86_FEATURE_ZEN);
+
 	/*
-	 * Fix erratum 1076: CPB feature bit not being set in CPUID. It affects
-	 * all up to and including B1.
+	 * Fix erratum 1076: CPB feature bit not being set in CPUID.
+	 * Always set it, except when running under a hypervisor.
 	 */
-	if (c->x86_model <= 1 && c->x86_mask <= 1)
+	if (!cpu_has(c, X86_FEATURE_HYPERVISOR) && !cpu_has(c, X86_FEATURE_CPB))
 		set_cpu_cap(c, X86_FEATURE_CPB);
 }
 
@@ -892,11 +894,6 @@ static void init_amd(struct cpuinfo_x86 *c)
 	/* AMD CPUs don't reset SS attributes on SYSRET, Xen does. */
 	if (!cpu_has(c, X86_FEATURE_XENPV))
 		set_cpu_bug(c, X86_BUG_SYSRET_SS_ATTRS);
-
-	if (boot_cpu_has(X86_FEATURE_AMD_RDS)) {
-		set_cpu_cap(c, X86_FEATURE_RDS);
-		set_cpu_cap(c, X86_FEATURE_AMD_RDS);
-	}
 }
 
 #ifdef CONFIG_X86_32
