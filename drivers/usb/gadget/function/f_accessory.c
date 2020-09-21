@@ -345,7 +345,7 @@ static void acc_complete_out(struct usb_ep *ep, struct usb_request *req)
 	wake_up(&dev->read_wq);
 }
 
-#ifndef CONFIG_SEC_FACTORY
+#ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
 static void acc_ctrlrequest_complete(struct usb_ep *ep, struct usb_request *req)
 {
 	if (req->status != 0) {
@@ -716,17 +716,16 @@ static ssize_t acc_write(struct file *fp, const char __user *buf,
 	}
 
 	while (count > 0) {
-		/* get an idle tx request to use */
-		req = 0;
-		ret = wait_event_interruptible(dev->write_wq,
-			((req = req_get(dev, &dev->tx_idle)) || !dev->online));
-
-		if (!dev->online || dev->disconnected) {
+		if (!dev->online) {
 			pr_debug("acc_write dev->error\n");
 			r = -EIO;
 			break;
 		}
 
+		/* get an idle tx request to use */
+		req = 0;
+		ret = wait_event_interruptible(dev->write_wq,
+			((req = req_get(dev, &dev->tx_idle)) || !dev->online));
 		if (!req) {
 			r = ret;
 			break;
