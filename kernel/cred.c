@@ -223,7 +223,6 @@ void __put_cred(struct cred *cred)
 #endif
 	BUG_ON(cred == current->cred);
 	BUG_ON(cred == current->real_cred);
-<<<<<<< HEAD
 #ifdef CONFIG_RKP_KDP
 	if (rkp_ro_page((unsigned long)cred)) {
 		put_ro_cred(cred);
@@ -818,7 +817,6 @@ const struct cred *override_creds(const struct cred *new)
 
 	validate_creds(old);
 	validate_creds(new);
-<<<<<<< HEAD
 #ifdef CONFIG_RKP_KDP
 	if(rkp_cred_enable) {
 		cred_param_t cred_param;
@@ -861,8 +859,6 @@ const struct cred *override_creds(const struct cred *new)
 		rcu_assign_pointer(current->cred, new);
 	}
 #else
-	get_cred(new);
-=======
 
 	/*
 	 * NOTE! This uses 'get_new_cred()' rather than 'get_cred()'.
@@ -876,7 +872,6 @@ const struct cred *override_creds(const struct cred *new)
 	 * on the validation in 'get_cred()'.
 	 */
 	get_new_cred((struct cred *)new);
->>>>>>> 204b14581f00... access: avoid the RCU grace period for the temporary subjective credentials
 	alter_cred_subscribers(new, 1);
 	rcu_assign_pointer(current->cred, new);
 #endif  /* CONFIG_RKP_KDP */
