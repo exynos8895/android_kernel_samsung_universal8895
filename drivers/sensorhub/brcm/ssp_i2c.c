@@ -312,11 +312,12 @@ int send_instruction(struct ssp_data *data, u8 uInst,
 	if (uInst == ADD_SENSOR || uInst == CHANGE_DELAY) {
 		unsigned int BatchTimeforReset = 0;
 	//current_Ts = get_current_timestamp();
-		if (uLength >= 9)
+		if (uLength >= 9) {
 			BatchTimeforReset = *(unsigned int *)(&uSendBuf[4]);// Add / change normal case, not factory.
 	//pr_info("[SSP] %s timeForRest %d", __func__, BatchTimeforReset);
 			data->IsBypassMode[uSensorType] = (BatchTimeforReset == 0);
 	//pr_info("[SSP] sensor%d mode%d Time %lld\n", uSensorType, data->IsBypassMode[uSensorType], current_Ts);
+		}
 	}
 	return iRet;
 }
