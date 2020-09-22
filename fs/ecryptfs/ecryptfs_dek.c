@@ -368,8 +368,9 @@ static int ecryptfs_update_crypt_flag(struct dentry *dentry, enum sdp_op operati
     if(list_empty(&crypt_stat->keysig_list))
         ecryptfs_dek_copy_mount_wide_sigs_to_inode_sigs(crypt_stat, mount_crypt_stat);
 
-	mutex_lock(&crypt_stat->cs_mutex);
-	rc = ecryptfs_get_lower_file(dentry, inode);
+    mutex_lock(&crypt_stat->cs_mutex);
+    rc = ecryptfs_get_lower_file(dentry, inode);
+
 	if (rc) {
 		mutex_unlock(&crypt_stat->cs_mutex);
 		DEK_LOGE("ecryptfs_get_lower_file rc=%d\n", rc);
@@ -414,7 +415,7 @@ out:
 	ecryptfs_put_lower_file(inode);
 	fsstack_copy_attr_all(inode, lower_inode);
 	return rc;
-}
+	}
 
 void ecryptfs_fs_request_callback(int opcode, int ret, unsigned long ino) {
     DEK_LOGD("%s opcode<%d> ret<%d> ino<%ld>\n", __func__, opcode, ret, ino);
