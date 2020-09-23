@@ -215,7 +215,7 @@ int ssp_send_cmd(struct ssp_data *data, char command, int arg)
 }
 
 int send_instruction(struct ssp_data *data, u8 uInst,
-	u8 uSensorType, u8 *uSendBuf, u16 uLength)
+		u8 uSensorType, u8 *uSendBuf, u16 uLength)
 {
 	char command;
 	int iRet = 0;
@@ -227,9 +227,9 @@ int send_instruction(struct ssp_data *data, u8 uInst,
 #endif
 
 	if ((!(data->uSensorState & (1ULL << uSensorType)))
-		&& (uInst <= CHANGE_DELAY)) {
+			&& (uInst <= CHANGE_DELAY)) {
 		pr_err("[SSP]: %s - Bypass Inst Skip! - %u\n",
-			__func__, uSensorType);
+				__func__, uSensorType);
 		return FAIL;
 	}
 
@@ -287,7 +287,7 @@ int send_instruction(struct ssp_data *data, u8 uInst,
 	if (msg == NULL) {
 		iRet = -ENOMEM;
 		pr_err("[SSP] %s, failed to alloc memory for ssp_msg\n",
-			__func__);
+				__func__);
 		return iRet;
 	}
 	msg->cmd = command;
@@ -311,12 +311,12 @@ int send_instruction(struct ssp_data *data, u8 uInst,
 
 	if (uInst == ADD_SENSOR || uInst == CHANGE_DELAY) {
 		unsigned int BatchTimeforReset = 0;
-	//current_Ts = get_current_timestamp();
+		//current_Ts = get_current_timestamp();
 		if (uLength >= 9)
 			BatchTimeforReset = *(unsigned int *)(&uSendBuf[4]);// Add / change normal case, not factory.
-	//pr_info("[SSP] %s timeForRest %d", __func__, BatchTimeforReset);
-			data->IsBypassMode[uSensorType] = (BatchTimeforReset == 0);
-	//pr_info("[SSP] sensor%d mode%d Time %lld\n", uSensorType, data->IsBypassMode[uSensorType], current_Ts);
+		//pr_info("[SSP] %s timeForRest %d", __func__, BatchTimeforReset);
+		data->IsBypassMode[uSensorType] = (BatchTimeforReset == 0);
+		//pr_info("[SSP] sensor%d mode%d Time %lld\n", uSensorType, data->IsBypassMode[uSensorType], current_Ts);
 	}
 	return iRet;
 }

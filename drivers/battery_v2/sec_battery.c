@@ -5916,14 +5916,14 @@ ssize_t sec_bat_store_attrs(
 		break;
 #if defined(CONFIG_BATTERY_CISD)
 	case CISD_DATA:
-		{
-			struct cisd *pcisd = &battery->cisd;
-			int temp_data[CISD_DATA_MAX_PER_DAY] = {0,};
+	{
+		struct cisd *pcisd = &battery->cisd;
+		int temp_data[CISD_DATA_MAX_PER_DAY] = {0,};
 
-			sscanf(buf, "%10d\n", &temp_data[0]);
+		sscanf(buf, "%10d\n", &temp_data[0]);
 
-			if (temp_data[CISD_DATA_RESET_ALG] > 0) {
-				if (sscanf(buf, "%10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d\n",
+		if (temp_data[CISD_DATA_RESET_ALG] > 0) {
+			if (sscanf(buf, "%10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d, %10d\n",
 					&temp_data[0], &temp_data[1], &temp_data[2],
 					&temp_data[3], &temp_data[4], &temp_data[5],
 					&temp_data[6], &temp_data[7], &temp_data[8],
@@ -5950,111 +5950,111 @@ ssize_t sec_bat_store_attrs(
 					&temp_data[69], &temp_data[70], &temp_data[71],
 					&temp_data[72], &temp_data[73], &temp_data[74],
 					&temp_data[75], &temp_data[76]) <= CISD_DATA_MAX_PER_DAY) {
-					for (i = 0; i < CISD_DATA_MAX_PER_DAY; i++)
-						pcisd->data[i] = 0;
-						pcisd->data[CISD_DATA_ALG_INDEX] = battery->pdata->cisd_alg_index;
-						pcisd->data[CISD_DATA_FULL_COUNT] = temp_data[0];
-						pcisd->data[CISD_DATA_CAP_MAX] = temp_data[1];
-						pcisd->data[CISD_DATA_CAP_MIN] = temp_data[2];
-						pcisd->data[CISD_DATA_VALERT_COUNT] = temp_data[16];
-						pcisd->data[CISD_DATA_CYCLE] = temp_data[17];
-						pcisd->data[CISD_DATA_WIRE_COUNT] = temp_data[18];
-						pcisd->data[CISD_DATA_WIRELESS_COUNT] = temp_data[19];
-						pcisd->data[CISD_DATA_HIGH_TEMP_SWELLING] = temp_data[20];
-						pcisd->data[CISD_DATA_LOW_TEMP_SWELLING] = temp_data[21];
-						pcisd->data[CISD_DATA_SWELLING_CHARGING_COUNT] = temp_data[22];
-						pcisd->data[CISD_DATA_AICL_COUNT] = temp_data[26];
-						pcisd->data[CISD_DATA_BATT_TEMP_MAX] = temp_data[27];
-						pcisd->data[CISD_DATA_BATT_TEMP_MIN] = temp_data[28];
-						pcisd->data[CISD_DATA_CHG_TEMP_MAX] = temp_data[29];
-						pcisd->data[CISD_DATA_CHG_TEMP_MIN] = temp_data[30];
-						pcisd->data[CISD_DATA_WPC_TEMP_MAX] = temp_data[31];
-						pcisd->data[CISD_DATA_WPC_TEMP_MIN] = temp_data[32];
-						pcisd->data[CISD_DATA_UNSAFETY_VOLTAGE] = temp_data[33];
-						pcisd->data[CISD_DATA_UNSAFETY_TEMPERATURE] = temp_data[34];
-						pcisd->data[CISD_DATA_SAFETY_TIMER] = temp_data[35];
-						pcisd->data[CISD_DATA_VSYS_OVP] = temp_data[36];
-						pcisd->data[CISD_DATA_VBAT_OVP] = temp_data[37];
-						pcisd->data[CISD_DATA_AFC_FAIL] = temp_data[39];
-						pcisd->data[CISD_DATA_WATER_DETECT] = temp_data[38];
-				}
-			} else {
-				const char *p = buf;
+				for (i = 0; i < CISD_DATA_MAX_PER_DAY; i++)
+					pcisd->data[i] = 0;
+				pcisd->data[CISD_DATA_ALG_INDEX] = battery->pdata->cisd_alg_index;
+				pcisd->data[CISD_DATA_FULL_COUNT] = temp_data[0];
+				pcisd->data[CISD_DATA_CAP_MAX] = temp_data[1];
+				pcisd->data[CISD_DATA_CAP_MIN] = temp_data[2];
+				pcisd->data[CISD_DATA_VALERT_COUNT] = temp_data[16];
+				pcisd->data[CISD_DATA_CYCLE] = temp_data[17];
+				pcisd->data[CISD_DATA_WIRE_COUNT] = temp_data[18];
+				pcisd->data[CISD_DATA_WIRELESS_COUNT] = temp_data[19];
+				pcisd->data[CISD_DATA_HIGH_TEMP_SWELLING] = temp_data[20];
+				pcisd->data[CISD_DATA_LOW_TEMP_SWELLING] = temp_data[21];
+				pcisd->data[CISD_DATA_SWELLING_CHARGING_COUNT] = temp_data[22];
+				pcisd->data[CISD_DATA_AICL_COUNT] = temp_data[26];
+				pcisd->data[CISD_DATA_BATT_TEMP_MAX] = temp_data[27];
+				pcisd->data[CISD_DATA_BATT_TEMP_MIN] = temp_data[28];
+				pcisd->data[CISD_DATA_CHG_TEMP_MAX] = temp_data[29];
+				pcisd->data[CISD_DATA_CHG_TEMP_MIN] = temp_data[30];
+				pcisd->data[CISD_DATA_WPC_TEMP_MAX] = temp_data[31];
+				pcisd->data[CISD_DATA_WPC_TEMP_MIN] = temp_data[32];
+				pcisd->data[CISD_DATA_UNSAFETY_VOLTAGE] = temp_data[33];
+				pcisd->data[CISD_DATA_UNSAFETY_TEMPERATURE] = temp_data[34];
+				pcisd->data[CISD_DATA_SAFETY_TIMER] = temp_data[35];
+				pcisd->data[CISD_DATA_VSYS_OVP] = temp_data[36];
+				pcisd->data[CISD_DATA_VBAT_OVP] = temp_data[37];
+				pcisd->data[CISD_DATA_AFC_FAIL] = temp_data[39];
+				pcisd->data[CISD_DATA_WATER_DETECT] = temp_data[38];
+			}
+		} else {
+			const char *p = buf;
 
-				pr_info("%s: %s\n", __func__, buf);
-				for (i = CISD_DATA_RESET_ALG; i < CISD_DATA_MAX_PER_DAY; i++) {
-					if (sscanf(p, "%10d%n", &pcisd->data[i], &x) > 0)
-						p += (size_t)x;
-					else {
-						pr_info("%s: NO DATA (cisd_data)\n", __func__);
-						temp_data[CISD_DATA_RESET_ALG] = -1;
-						break;
-					}
-				}
-
-				pr_info("%s: %s cisd data\n", __func__,
-					((temp_data[CISD_DATA_RESET_ALG] < 0 || battery->fg_reset) ? "init" : "update"));
-
-				if (temp_data[CISD_DATA_RESET_ALG] < 0 || battery->fg_reset) {
-					/* initialize data */
-					for (i = CISD_DATA_RESET_ALG; i < CISD_DATA_MAX_PER_DAY; i++)
-						pcisd->data[i] = 0;
-
-					battery->fg_reset = 0;
-
-					pcisd->data[CISD_DATA_ALG_INDEX] = battery->pdata->cisd_alg_index;
-
-					pcisd->data[CISD_DATA_FULL_COUNT] = 1;
-					pcisd->data[CISD_DATA_BATT_TEMP_MAX] = -300;
-					pcisd->data[CISD_DATA_CHG_TEMP_MAX] = -300;
-					pcisd->data[CISD_DATA_WPC_TEMP_MAX] = -300;
-					pcisd->data[CISD_DATA_USB_TEMP_MAX] = -300;
-					pcisd->data[CISD_DATA_BATT_TEMP_MIN] = 1000;
-					pcisd->data[CISD_DATA_CHG_TEMP_MIN] = 1000;
-					pcisd->data[CISD_DATA_WPC_TEMP_MIN] = 1000;
-					pcisd->data[CISD_DATA_USB_TEMP_MIN] = 1000;
-					pcisd->data[CISD_DATA_CAP_MIN] = 0xFFFF;
-
-					pcisd->data[CISD_DATA_FULL_COUNT_PER_DAY] = 1;
-					pcisd->data[CISD_DATA_BATT_TEMP_MAX_PER_DAY] = -300;
-					pcisd->data[CISD_DATA_CHG_TEMP_MAX_PER_DAY] = -300;
-					pcisd->data[CISD_DATA_WPC_TEMP_MAX_PER_DAY] = -300;
-					pcisd->data[CISD_DATA_USB_TEMP_MAX_PER_DAY] = -300;
-					pcisd->data[CISD_DATA_BATT_TEMP_MIN_PER_DAY] = 1000;
-					pcisd->data[CISD_DATA_CHG_TEMP_MIN_PER_DAY] = 1000;
-					pcisd->data[CISD_DATA_WPC_TEMP_MIN_PER_DAY] = 1000;
-					pcisd->data[CISD_DATA_USB_TEMP_MIN_PER_DAY] = 1000;
-
-					pcisd->data[CISD_DATA_CHG_BATT_TEMP_MAX] = -300;
-					pcisd->data[CISD_DATA_CHG_CHG_TEMP_MAX] = -300;
-					pcisd->data[CISD_DATA_CHG_WPC_TEMP_MAX] = -300;
-					pcisd->data[CISD_DATA_CHG_USB_TEMP_MAX] = -300;
-					pcisd->data[CISD_DATA_CHG_BATT_TEMP_MIN] = 1000;
-					pcisd->data[CISD_DATA_CHG_CHG_TEMP_MIN] = 1000;
-					pcisd->data[CISD_DATA_CHG_WPC_TEMP_MIN] = 1000;
-					pcisd->data[CISD_DATA_CHG_USB_TEMP_MIN] = 1000;
-
-					pcisd->data[CISD_DATA_CHG_BATT_TEMP_MAX_PER_DAY] = -300;
-					pcisd->data[CISD_DATA_CHG_CHG_TEMP_MAX_PER_DAY] = -300;
-					pcisd->data[CISD_DATA_CHG_WPC_TEMP_MAX_PER_DAY] = -300;
-					pcisd->data[CISD_DATA_CHG_USB_TEMP_MAX_PER_DAY] = -300;
-					pcisd->data[CISD_DATA_CHG_BATT_TEMP_MIN_PER_DAY] = 1000;
-					pcisd->data[CISD_DATA_CHG_CHG_TEMP_MIN_PER_DAY] = 1000;
-					pcisd->data[CISD_DATA_CHG_WPC_TEMP_MIN_PER_DAY] = 1000;
-					pcisd->data[CISD_DATA_CHG_USB_TEMP_MIN_PER_DAY] = 1000;
-
-					pcisd->data[CISD_DATA_CAP_MIN_PER_DAY] = 0xFFFF;
-
-				
-					/* initialize pad data */
-					init_cisd_pad_data(&battery->cisd);
+			pr_info("%s: %s\n", __func__, buf);
+			for (i = CISD_DATA_RESET_ALG; i < CISD_DATA_MAX_PER_DAY; i++) {
+				if (sscanf(p, "%10d%n", &pcisd->data[i], &x) > 0)
+					p += (size_t)x;
+				else {
+					pr_info("%s: NO DATA (cisd_data)\n", __func__);
+					temp_data[CISD_DATA_RESET_ALG] = -1;
+					break;
 				}
 			}
-			ret = count;
-			wake_lock(&battery->monitor_wake_lock);
-			queue_delayed_work(battery->monitor_wqueue, &battery->monitor_work, 0);
+
+			pr_info("%s: %s cisd data\n", __func__,
+					((temp_data[CISD_DATA_RESET_ALG] < 0 || battery->fg_reset) ? "init" : "update"));
+
+			if (temp_data[CISD_DATA_RESET_ALG] < 0 || battery->fg_reset) {
+				/* initialize data */
+				for (i = CISD_DATA_RESET_ALG; i < CISD_DATA_MAX_PER_DAY; i++)
+					pcisd->data[i] = 0;
+
+				battery->fg_reset = 0;
+
+				pcisd->data[CISD_DATA_ALG_INDEX] = battery->pdata->cisd_alg_index;
+
+				pcisd->data[CISD_DATA_FULL_COUNT] = 1;
+				pcisd->data[CISD_DATA_BATT_TEMP_MAX] = -300;
+				pcisd->data[CISD_DATA_CHG_TEMP_MAX] = -300;
+				pcisd->data[CISD_DATA_WPC_TEMP_MAX] = -300;
+				pcisd->data[CISD_DATA_USB_TEMP_MAX] = -300;
+				pcisd->data[CISD_DATA_BATT_TEMP_MIN] = 1000;
+				pcisd->data[CISD_DATA_CHG_TEMP_MIN] = 1000;
+				pcisd->data[CISD_DATA_WPC_TEMP_MIN] = 1000;
+				pcisd->data[CISD_DATA_USB_TEMP_MIN] = 1000;
+				pcisd->data[CISD_DATA_CAP_MIN] = 0xFFFF;
+
+				pcisd->data[CISD_DATA_FULL_COUNT_PER_DAY] = 1;
+				pcisd->data[CISD_DATA_BATT_TEMP_MAX_PER_DAY] = -300;
+				pcisd->data[CISD_DATA_CHG_TEMP_MAX_PER_DAY] = -300;
+				pcisd->data[CISD_DATA_WPC_TEMP_MAX_PER_DAY] = -300;
+				pcisd->data[CISD_DATA_USB_TEMP_MAX_PER_DAY] = -300;
+				pcisd->data[CISD_DATA_BATT_TEMP_MIN_PER_DAY] = 1000;
+				pcisd->data[CISD_DATA_CHG_TEMP_MIN_PER_DAY] = 1000;
+				pcisd->data[CISD_DATA_WPC_TEMP_MIN_PER_DAY] = 1000;
+				pcisd->data[CISD_DATA_USB_TEMP_MIN_PER_DAY] = 1000;
+
+				pcisd->data[CISD_DATA_CHG_BATT_TEMP_MAX] = -300;
+				pcisd->data[CISD_DATA_CHG_CHG_TEMP_MAX] = -300;
+				pcisd->data[CISD_DATA_CHG_WPC_TEMP_MAX] = -300;
+				pcisd->data[CISD_DATA_CHG_USB_TEMP_MAX] = -300;
+				pcisd->data[CISD_DATA_CHG_BATT_TEMP_MIN] = 1000;
+				pcisd->data[CISD_DATA_CHG_CHG_TEMP_MIN] = 1000;
+				pcisd->data[CISD_DATA_CHG_WPC_TEMP_MIN] = 1000;
+				pcisd->data[CISD_DATA_CHG_USB_TEMP_MIN] = 1000;
+
+				pcisd->data[CISD_DATA_CHG_BATT_TEMP_MAX_PER_DAY] = -300;
+				pcisd->data[CISD_DATA_CHG_CHG_TEMP_MAX_PER_DAY] = -300;
+				pcisd->data[CISD_DATA_CHG_WPC_TEMP_MAX_PER_DAY] = -300;
+				pcisd->data[CISD_DATA_CHG_USB_TEMP_MAX_PER_DAY] = -300;
+				pcisd->data[CISD_DATA_CHG_BATT_TEMP_MIN_PER_DAY] = 1000;
+				pcisd->data[CISD_DATA_CHG_CHG_TEMP_MIN_PER_DAY] = 1000;
+				pcisd->data[CISD_DATA_CHG_WPC_TEMP_MIN_PER_DAY] = 1000;
+				pcisd->data[CISD_DATA_CHG_USB_TEMP_MIN_PER_DAY] = 1000;
+
+				pcisd->data[CISD_DATA_CAP_MIN_PER_DAY] = 0xFFFF;
+
+
+				/* initialize pad data */
+				init_cisd_pad_data(&battery->cisd);
+			}
 		}
-		break;
+		ret = count;
+		wake_lock(&battery->monitor_wake_lock);
+		queue_delayed_work(battery->monitor_wqueue, &battery->monitor_work, 0);
+	}
+	break;
 	case CISD_DATA_JSON:
 		{
 			char tc;

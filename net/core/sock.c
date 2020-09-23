@@ -749,7 +749,7 @@ EXPORT_SYMBOL(sk_mc_loop);
  */
 
 int sock_setsockopt(struct socket *sock, int level, int optname,
-		    char __user *optval, unsigned int optlen)
+		char __user *optval, unsigned int optlen)
 {
 	struct sock *sk = sock->sk;
 	int val;
@@ -764,12 +764,12 @@ int sock_setsockopt(struct socket *sock, int level, int optname,
 	if (optname == SO_BINDTODEVICE)
 		return sock_setbindtodevice(sk, optval, optlen);
 
-    /* START_OF_KNOX_NPA */
-    if (optname == SO_SET_DOMAIN_NAME)
-        return sock_set_domain_name(sk, optval, optlen);
-    if (optname == SO_SET_DNS_UID)
-	return sock_set_dns_uid(sk, optval, optlen);
-    /* END_OF_KNOX_NPA */
+	/* START_OF_KNOX_NPA */
+	if (optname == SO_SET_DOMAIN_NAME)
+		return sock_set_domain_name(sk, optval, optlen);
+	if (optname == SO_SET_DNS_UID)
+		return sock_set_dns_uid(sk, optval, optlen);
+	/* END_OF_KNOX_NPA */
 
 	if (optlen < sizeof(int))
 		return -EINVAL;
@@ -813,7 +813,7 @@ int sock_setsockopt(struct socket *sock, int level, int optname,
 		 * are treated in BSD as hints
 		 */
 		val = min_t(u32, val, sysctl_wmem_max);
-set_sndbuf:
+		set_sndbuf:
 		sk->sk_userlocks |= SOCK_SNDBUF_LOCK;
 		sk->sk_sndbuf = max_t(int, val * 2, SOCK_MIN_SNDBUF);
 		/* Wake up sending tasks if we upped the value. */
@@ -834,7 +834,7 @@ set_sndbuf:
 		 * are treated in BSD as hints
 		 */
 		val = min_t(u32, val, sysctl_rmem_max);
-set_rcvbuf:
+		set_rcvbuf:
 		sk->sk_userlocks |= SOCK_RCVBUF_LOCK;
 		/*
 		 * We double it on the way in to account for
@@ -864,7 +864,7 @@ set_rcvbuf:
 	case SO_KEEPALIVE:
 #ifdef CONFIG_INET
 		if (sk->sk_protocol == IPPROTO_TCP &&
-		    sk->sk_type == SOCK_STREAM)
+				sk->sk_type == SOCK_STREAM)
 			tcp_set_keepalive(sk, valbool);
 #endif
 		sock_valbool_flag(sk, SOCK_KEEPOPEN, valbool);
@@ -880,7 +880,7 @@ set_rcvbuf:
 
 	case SO_PRIORITY:
 		if ((val >= 0 && val <= 6) ||
-		    ns_capable(sock_net(sk)->user_ns, CAP_NET_ADMIN))
+				ns_capable(sock_net(sk)->user_ns, CAP_NET_ADMIN))
 			sk->sk_priority = val;
 		else
 			ret = -EPERM;
@@ -941,9 +941,9 @@ set_rcvbuf:
 		}
 
 		if (val & SOF_TIMESTAMPING_OPT_ID &&
-		    !(sk->sk_tsflags & SOF_TIMESTAMPING_OPT_ID)) {
+				!(sk->sk_tsflags & SOF_TIMESTAMPING_OPT_ID)) {
 			if (sk->sk_protocol == IPPROTO_TCP &&
-			    sk->sk_type == SOCK_STREAM) {
+					sk->sk_type == SOCK_STREAM) {
 				if (sk->sk_state != TCP_ESTABLISHED) {
 					ret = -EINVAL;
 					break;
@@ -956,10 +956,10 @@ set_rcvbuf:
 		sk->sk_tsflags = val;
 		if (val & SOF_TIMESTAMPING_RX_SOFTWARE)
 			sock_enable_timestamp(sk,
-					      SOCK_TIMESTAMPING_RX_SOFTWARE);
+					SOCK_TIMESTAMPING_RX_SOFTWARE);
 		else
 			sock_disable_timestamp(sk,
-					       (1UL << SOCK_TIMESTAMPING_RX_SOFTWARE));
+					(1UL << SOCK_TIMESTAMPING_RX_SOFTWARE));
 		break;
 
 	case SO_RCVLOWAT:
@@ -1066,7 +1066,7 @@ set_rcvbuf:
 	case SO_MAX_PACING_RATE:
 		sk->sk_max_pacing_rate = val;
 		sk->sk_pacing_rate = min(sk->sk_pacing_rate,
-					 sk->sk_max_pacing_rate);
+				sk->sk_max_pacing_rate);
 		break;
 
 	case SO_INCOMING_CPU:
