@@ -695,13 +695,8 @@ static ssize_t read_ambient_channel_delta_show(struct device *dev,
 		snprintf(temp, sizeof(temp), "\"TCDR%02d\":\"%d\"",
 				i, ts->ambient_rx_delta[i]);
 		strlcat(buffer, temp, (ts->tx_count + ts->rx_count) * 25);
-<<<<<<< HEAD
-		if (i != (ts->rx_count - 1))
-			strlcat(buffer, ",", (ts->tx_count + ts->rx_count) * 25);
-=======
 		if (i  != (ts->rx_count - 1))
 			strncat(buffer, ",", 2);
->>>>>>> 58c150be956b... drivers: touchscreen: fix strncat-size warnings
 	}
 
 	ret = snprintf(buf, (ts->tx_count + ts->rx_count) * 25, buffer);
