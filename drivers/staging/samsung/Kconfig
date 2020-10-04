@@ -58,7 +58,7 @@ config SEC_DEBUG_AUTO_SUMMARY
 
 config SEC_UPLOAD
 	bool "Enable TN upload mode"
-	depends on SEC_DEBUG
+	depends on SEC_DEBUG && PM_DEBUG
 	default y
 	help
 	  Samsung TN upload mode
