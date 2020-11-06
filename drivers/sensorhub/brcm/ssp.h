@@ -66,7 +66,7 @@
 #undef CONFIG_HAS_EARLYSUSPEND
 #endif
 
-#define SSP_DBG		1
+//#define SSP_DBG
 
 #define SUCCESS		1
 #define FAIL		0
@@ -74,12 +74,12 @@
 
 #define FACTORY_DATA_MAX	99
 
-#if SSP_DBG
-#define SSP_FUNC_DBG 1
-#define SSP_DATA_DBG 0
-
 /* ssp mcu device ID */
 #define DEVICE_ID			0x55
+
+#if defined(SSP_DBG)
+#define SSP_FUNC_DBG 1
+#define SSP_DATA_DBG 0
 
 #define ssp_dbg(format, ...) \
 	pr_info(format, ##__VA_ARGS__)
@@ -87,14 +87,14 @@
 #define ssp_dbg(format, ...)
 #endif
 
-#if SSP_FUNC_DBG
+#if defined(SSP_FUNC_DBG)
 #define func_dbg() \
 	pr_info("[SSP]: %s\n", __func__)
 #else
 #define func_dbg()
 #endif
 
-#if SSP_DATA_DBG
+#if defined(SSP_DATA_DBG)
 #define data_dbg(format, ...) \
 	pr_info(format, ##__VA_ARGS__)
 #else
