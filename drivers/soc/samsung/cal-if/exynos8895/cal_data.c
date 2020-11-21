@@ -146,3 +146,46 @@ int asv_get_information(enum dvfs_id id, enum asv_group grp, unsigned int lv) {
 		return 0;
 }
 #endif /* CONFIG_SEC_PM_DEBUG */
+
+#include <linux/debugfs.h>
+
+static int asv_summary_show(struct seq_file *s, void *d)
+{
+
+	seq_printf(s, "Table ver: %d\n", asv_get_table_ver());
+	seq_printf(s, "CL0: %d\n", asv_tbl->mngs_asv_group);
+	seq_printf(s, "CL1: %d\n", asv_tbl->apollo_asv_group);
+	seq_printf(s, "G3D: %d\n", asv_tbl->g3d_asv_group);
+	seq_printf(s, "MIF: %d\n", asv_tbl->mif_asv_group);
+	seq_printf(s, "INT: %d\n", asv_tbl->int_asv_group);
+	seq_printf(s, "CAM: %d\n", asv_tbl->cam_disp_asv_group);
+	seq_printf(s, "CP: %d\n", asv_tbl->cp_asv_group);
+
+	seq_printf(s, "IDS (b,g): %d, %d\n",
+			asv_get_ids_info(dvfs_cpucl0),
+			asv_get_ids_info(dvfs_g3d));
+
+	return 0;
+}
+
+static int asv_summary_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, asv_summary_show, inode->i_private);
+}
+
+const static struct file_operations asv_summary_fops = {
+	.open		= asv_summary_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
+static int __init cal_data_late_init(void)
+{
+	debugfs_create_file("asv_summary", 0444, NULL, NULL, &asv_summary_fops);
+
+	return 0;
+}
+
+late_initcall(cal_data_late_init);
+
