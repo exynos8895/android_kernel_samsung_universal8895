@@ -145,7 +145,7 @@ struct scan_control {
 #if defined(CONFIG_OIS_USE_RUMBA_S6)
 int vm_swappiness = 100;
 #else
-int vm_swappiness = 60;
+int vm_swappiness = 160;
 #endif
 /*
  * The total number of pages which are beyond the high watermark within all
