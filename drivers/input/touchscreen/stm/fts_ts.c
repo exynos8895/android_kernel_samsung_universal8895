@@ -61,6 +61,7 @@
 struct fts_ts_info *tui_tsp_info;
 #endif
 #include "fts_ts.h"
+#include "../../../i2c/busses/i2c-exynos5.h"
 
 #if defined(CONFIG_SECURE_TOUCH)
 #include <linux/clk.h>
@@ -2256,7 +2257,8 @@ static irqreturn_t fts_interrupt_handler(int irq, void *handle)
 	}
 
 	/* prevent CPU from entering deep sleep */
-	pm_qos_update_request(&info->pm_qos_req, 100);
+	pm_qos_update_request(&info->pm_i2c_req, 100);
+	pm_qos_update_request(&info->pm_touch_req, 100);
 
 	evtcount = 0;
 	fts_read_reg(info, &regAdd[0], 3, (unsigned char *)&evtcount, 2);
@@ -2274,7 +2276,8 @@ static irqreturn_t fts_interrupt_handler(int irq, void *handle)
 		fts_event_handler_type_b(info, info->data, evtcount);
 	}
 
-	pm_qos_update_request(&info->pm_qos_req, PM_QOS_DEFAULT_VALUE);
+	pm_qos_update_request(&info->pm_i2c_req, PM_QOS_DEFAULT_VALUE);
+	pm_qos_update_request(&info->pm_touch_req, PM_QOS_DEFAULT_VALUE);
 
 	return IRQ_HANDLED;
 }
@@ -2817,6 +2820,7 @@ static void fts_set_input_prop(struct fts_ts_info *info, struct input_dev *dev, 
 static int fts_probe(struct i2c_client *client, const struct i2c_device_id *idp)
 {
 	int retval;
+	struct exynos5_i2c *i2c_master = (struct exynos5_i2c *)client->adapter->algo_data;
 	struct fts_ts_info *info = NULL;
 	int i = 0;
 
@@ -2930,8 +2934,15 @@ static int fts_probe(struct i2c_client *client, const struct i2c_device_id *idp)
 		info->finger[i].mcount = 0;
 	}
 
-	pm_qos_add_request(&info->pm_qos_req, PM_QOS_CPU_DMA_LATENCY,
-			PM_QOS_DEFAULT_VALUE);
+	info->pm_i2c_req.type = PM_QOS_REQ_AFFINE_IRQ;
+	info->pm_i2c_req.irq = i2c_master->irq;
+	pm_qos_add_request(&info->pm_i2c_req, PM_QOS_CPU_DMA_LATENCY,
+			   PM_QOS_DEFAULT_VALUE);
+
+	info->pm_touch_req.type = PM_QOS_REQ_AFFINE_IRQ;
+	info->pm_touch_req.irq = info->irq;
+	pm_qos_add_request(&info->pm_touch_req, PM_QOS_CPU_DMA_LATENCY,
+			   PM_QOS_DEFAULT_VALUE);
 
 	retval = fts_irq_enable(info, true);
 	if (retval < 0) {
@@ -3053,7 +3064,8 @@ err_sec_cmd:
 	tui_tsp_info = NULL;
 #endif	
 err_enable_irq:
-	pm_qos_remove_request(&info->pm_qos_req);
+	pm_qos_remove_request(&info->pm_i2c_req);
+	pm_qos_remove_request(&info->pm_touch_req);
 	if (info->board->support_dex) {
 		input_unregister_device(info->input_dev_pad);
 		info->input_dev_pad = NULL;
@@ -3171,7 +3183,8 @@ static int fts_remove(struct i2c_client *client)
 	info->shutdown_is_on_going = false;
 	kfree(info);
 
-	pm_qos_remove_request(&info->pm_qos_req);
+	pm_qos_remove_request(&info->pm_i2c_req);
+	pm_qos_remove_request(&info->pm_touch_req);
 
 	return 0;
 }
