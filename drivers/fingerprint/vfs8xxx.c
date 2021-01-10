@@ -1224,8 +1224,7 @@ static int vfsspi_platformInit(struct vfsspi_device_data *vfsspi_device)
 		goto vfsspi_platformInit_ldo_failed;
 	}
 
-	if (request_irq(gpio_irq, vfsspi_irq,
-			IRQF_TRIGGER_RISING | IRQF_PERF_CRITICAL,
+	if (request_irq(gpio_irq, vfsspi_irq, IRQF_TRIGGER_RISING,
 			"vfsspi_irq", vfsspi_device) < 0) {
 		pr_err("%s request_irq failed\n", __func__);
 		status = -EBUSY;

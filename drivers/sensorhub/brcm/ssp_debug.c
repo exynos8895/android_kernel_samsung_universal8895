@@ -222,7 +222,9 @@ int print_mcu_debug(char *pchRcvDataFrame, int *pDataIdx,
 		int iRcvDataFrameLength)
 {
 	int iLength = 0;
+#if defined(SSP_DBG)
 	int cur = *pDataIdx;
+#endif
 
 	memcpy(&iLength, pchRcvDataFrame + *pDataIdx, sizeof(u16));
 	*pDataIdx += sizeof(u16);
