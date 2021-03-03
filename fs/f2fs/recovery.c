@@ -195,6 +195,20 @@ out:
 	return err;
 }
 
+static void recover_inline_flags(struct inode *inode, struct f2fs_inode *ri)
+{
+	if (ri->i_inline & F2FS_PIN_FILE)
+		set_inode_flag(inode, FI_PIN_FILE);
+	else
+		clear_inode_flag(inode, FI_PIN_FILE);
+	if (ri->i_inline & F2FS_DATA_EXIST)
+		set_inode_flag(inode, FI_DATA_EXIST);
+	else
+		clear_inode_flag(inode, FI_DATA_EXIST);
+	if (!(ri->i_inline & F2FS_INLINE_DOTS))
+		clear_inode_flag(inode, FI_INLINE_DOTS);
+}
+
 static void recover_inode(struct inode *inode, struct page *page)
 {
 	struct f2fs_inode *raw = F2FS_INODE(page);
@@ -211,13 +225,16 @@ static void recover_inode(struct inode *inode, struct page *page)
 
 	F2FS_I(inode)->i_advise = raw->i_advise;
 
+	recover_inline_flags(inode, raw);
+
 	if (file_enc_name(inode))
 		name = "<encrypted>";
 	else
 		name = F2FS_INODE(page)->i_name;
 
-	f2fs_msg(inode->i_sb, KERN_NOTICE, "recover_inode: ino = %x, name = %s",
-			ino_of_node(page), name);
+	f2fs_msg(inode->i_sb, KERN_NOTICE,
+		"recover_inode: ino = %x, name = %s, inline = %x",
+			ino_of_node(page), name, raw->i_inline);
 }
 
 static int find_fsync_dnodes(struct f2fs_sb_info *sbi, struct list_head *head,
@@ -226,6 +243,9 @@ static int find_fsync_dnodes(struct f2fs_sb_info *sbi, struct list_head *head,
 	struct curseg_info *curseg;
 	struct page *page = NULL;
 	block_t blkaddr;
+	unsigned int loop_cnt = 0;
+	unsigned int free_blocks = sbi->user_block_count -
+					valid_user_blocks(sbi);
 	int err = 0;
 
 	/* get node pages in the current segment */
@@ -278,6 +298,17 @@ static int find_fsync_dnodes(struct f2fs_sb_info *sbi, struct list_head *head,
 		if (IS_INODE(page) && is_dent_dnode(page))
 			entry->last_dentry = blkaddr;
 next:
+		/* sanity check in order to detect looped node chain */
+		if (++loop_cnt >= free_blocks ||
+			blkaddr == next_blkaddr_of_node(page)) {
+			f2fs_msg(sbi->sb, KERN_NOTICE,
+				"%s: detect looped node chain, "
+				"blkaddr:%u, next:%u",
+				__func__, blkaddr, next_blkaddr_of_node(page));
+			err = -EINVAL;
+			break;
+		}
+
 		/* check next segment */
 		blkaddr = next_blkaddr_of_node(page);
 		f2fs_put_page(page, 1);
@@ -404,7 +435,7 @@ truncate_out:
 }
 
 static int do_recover_data(struct f2fs_sb_info *sbi, struct inode *inode,
-					struct page *page, block_t blkaddr)
+					struct page *page)
 {
 	struct dnode_of_data dn;
 	struct node_info ni;
@@ -415,7 +446,7 @@ static int do_recover_data(struct f2fs_sb_info *sbi, struct inode *inode,
 	if (IS_INODE(page)) {
 		recover_inline_xattr(inode, page);
 	} else if (f2fs_has_xattr_block(ofs_of_node(page))) {
-		err = recover_xattr_data(inode, page, blkaddr);
+		err = recover_xattr_data(inode, page);
 		if (!err)
 			recovered++;
 		goto out;
@@ -568,7 +599,7 @@ static int recover_data(struct f2fs_sb_info *sbi, struct list_head *inode_list,
 				break;
 			}
 		}
-		err = do_recover_data(sbi, entry->inode, page, blkaddr);
+		err = do_recover_data(sbi, entry->inode, page);
 		if (err) {
 			f2fs_put_page(page, 1);
 			break;
