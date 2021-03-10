@@ -2710,7 +2710,7 @@ video_usercopy(struct file *file, unsigned int cmd, unsigned long arg,
 	       v4l2_kioctl func)
 {
 	char	sbuf[128];
-	void    *mbuf = NULL, *array_buf = NULL;
+	void    *mbuf = NULL;
 	void	*parg = (void *)arg;
 	long	err  = -EINVAL;
 	bool	has_array_args;
@@ -2765,14 +2765,20 @@ video_usercopy(struct file *file, unsigned int cmd, unsigned long arg,
 	has_array_args = err;
 
 	if (has_array_args) {
-		array_buf = kmalloc(array_size, GFP_KERNEL);
+		/*
+		 * When adding new types of array args, make sure that the
+		 * parent argument to ioctl (which contains the pointer to the
+		 * array) fits into sbuf (so that mbuf will still remain
+		 * unused up to here).
+		 */
+		mbuf = kmalloc(array_size, GFP_KERNEL);
 		err = -ENOMEM;
-		if (array_buf == NULL)
+		if (NULL == mbuf)
 			goto out_array_args;
 		err = -EFAULT;
-		if (copy_from_user(array_buf, user_ptr, array_size))
+		if (copy_from_user(mbuf, user_ptr, array_size))
 			goto out_array_args;
-		*kernel_ptr = array_buf;
+		*kernel_ptr = mbuf;
 	}
 
 	/* Handles IOCTL */
@@ -2791,7 +2797,7 @@ video_usercopy(struct file *file, unsigned int cmd, unsigned long arg,
 
 	if (has_array_args) {
 		*kernel_ptr = (void __force *)user_ptr;
-		if (copy_to_user(user_ptr, array_buf, array_size))
+		if (copy_to_user(user_ptr, mbuf, array_size))
 			err = -EFAULT;
 		goto out_array_args;
 	}
@@ -2811,7 +2817,6 @@ out_array_args:
 	}
 
 out:
-	kfree(array_buf);
 	kfree(mbuf);
 	return err;
 }
