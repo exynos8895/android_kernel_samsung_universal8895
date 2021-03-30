@@ -111,10 +111,7 @@ static __inline__ struct ipv6_pinfo *inet6_sk_generic(struct sock *sk)
 	return (struct ipv6_pinfo *)(((u8 *)sk) + offset);
 }
 
-#ifndef CONFIG_MPTCP
-static
-#endif
-int inet6_create(struct net *net, struct socket *sock, int protocol,
+static int inet6_create(struct net *net, struct socket *sock, int protocol,
 			int kern)
 {
 	struct inet_sock *inet;

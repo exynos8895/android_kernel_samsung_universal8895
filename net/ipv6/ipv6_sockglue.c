@@ -48,10 +48,6 @@
 #include <net/addrconf.h>
 #include <net/inet_common.h>
 #include <net/tcp.h>
-#ifdef CONFIG_MPTCP
-#include <net/mptcp.h>
-#include <net/mptcp_v4.h>
-#endif
 #include <net/udp.h>
 #include <net/udplite.h>
 #include <net/xfrm.h>
@@ -227,11 +223,6 @@ static int do_ipv6_setsockopt(struct sock *sk, int level, int optname,
 				sock_prot_inuse_add(net, &tcp_prot, 1);
 				local_bh_enable();
 				sk->sk_prot = &tcp_prot;
-#ifdef CONFIG_MPTCP
-				if (sock_flag(sk, SOCK_MPTCP))
-					icsk->icsk_af_ops = &mptcp_v4_specific;
-				else
-#endif
 				icsk->icsk_af_ops = &ipv4_specific;
 				sk->sk_socket->ops = &inet_stream_ops;
 				sk->sk_family = PF_INET;
@@ -258,12 +249,7 @@ static int do_ipv6_setsockopt(struct sock *sk, int level, int optname,
 			pktopt = xchg(&np->pktoptions, NULL);
 			kfree_skb(pktopt);
 
-#ifdef CONFIG_MPTCP
-			if (is_meta_sk(sk))
-				sk->sk_destruct = mptcp_sock_destruct;
-			else
-#endif
-				sk->sk_destruct = inet_sock_destruct;
+			sk->sk_destruct = inet_sock_destruct;
 			/*
 			 * ... and add it to the refcnt debug socks count
 			 * in the new family. -acme

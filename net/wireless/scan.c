@@ -489,19 +489,9 @@ static int cmp_bss(struct cfg80211_bss *a,
 	const u8 *ie1 = NULL;
 	const u8 *ie2 = NULL;
 	int i, r;
-	#if !(defined(CONFIG_BCM4335) || defined(CONFIG_BCM4335_MODULE) \
-	|| defined(CONFIG_BCM4339) || defined(CONFIG_BCM4339_MODULE) \
-	|| defined(CONFIG_BCM43438) || defined(CONFIG_BCM43438_MODULE) \
-	|| defined(CONFIG_BCM43454) || defined(CONFIG_BCM43454_MODULE) \
-	|| defined(CONFIG_BCM43455) || defined(CONFIG_BCM43455_MODULE) \
-	|| defined(CONFIG_BCM4354) || defined(CONFIG_BCM4354_MODULE) \
-	|| defined(CONFIG_BCM4356) || defined(CONFIG_BCM4356_MODULE) \
-	|| defined(CONFIG_BCM4358) || defined(CONFIG_BCM4358_MODULE)\
-	|| defined(CONFIG_BCM4359) || defined(CONFIG_BCM4359_MODULE)\
-	|| defined(CONFIG_BCM4361) || defined(CONFIG_BCM4361_MODULE))
+
 	if (a->channel != b->channel)
 		return b->channel->center_freq - a->channel->center_freq;
-	#endif /* CONFIG_BCM43xx */
 
 	a_ies = rcu_access_pointer(a->ies);
 	if (!a_ies)
@@ -540,20 +530,6 @@ static int cmp_bss(struct cfg80211_bss *a,
 	r = memcmp(a->bssid, b->bssid, sizeof(a->bssid));
 	if (r)
 		return r;
-
-	#if (defined(CONFIG_BCM4335) || defined(CONFIG_BCM4335_MODULE) \
-	|| defined(CONFIG_BCM4339) || defined(CONFIG_BCM4339_MODULE) \
-	|| defined(CONFIG_BCM43438) || defined(CONFIG_BCM43438_MODULE) \
-	|| defined(CONFIG_BCM43454) || defined(CONFIG_BCM43454_MODULE) \
-	|| defined(CONFIG_BCM43455) || defined(CONFIG_BCM43455_MODULE) \
-	|| defined(CONFIG_BCM4354) || defined(CONFIG_BCM4354_MODULE) \
-	|| defined(CONFIG_BCM4356) || defined(CONFIG_BCM4356_MODULE) \
-	|| defined(CONFIG_BCM4358) || defined(CONFIG_BCM4358_MODULE)\
-	|| defined(CONFIG_BCM4359) || defined(CONFIG_BCM4359_MODULE)\
-	|| defined(CONFIG_BCM4361) || defined(CONFIG_BCM4361_MODULE))
-	if (a->channel != b->channel)
-		return b->channel->center_freq - a->channel->center_freq;
-	#endif /* CONFIG_BCM43xx */
 
 	ie1 = cfg80211_find_ie(WLAN_EID_SSID, a_ies->data, a_ies->len);
 	ie2 = cfg80211_find_ie(WLAN_EID_SSID, b_ies->data, b_ies->len);
@@ -606,7 +582,7 @@ static int cmp_bss(struct cfg80211_bss *a,
 }
 
 static bool cfg80211_bss_type_match(u16 capability,
-				    enum nl80211_band band,
+				    enum ieee80211_band band,
 				    enum ieee80211_bss_type bss_type)
 {
 	bool ret = true;
@@ -615,7 +591,7 @@ static bool cfg80211_bss_type_match(u16 capability,
 	if (bss_type == IEEE80211_BSS_TYPE_ANY)
 		return ret;
 
-	if (band == NL80211_BAND_60GHZ) {
+	if (band == IEEE80211_BAND_60GHZ) {
 		mask = WLAN_CAPABILITY_DMG_TYPE_MASK;
 		switch (bss_type) {
 		case IEEE80211_BSS_TYPE_ESS:
@@ -1099,7 +1075,7 @@ cfg80211_inform_bss_data(struct wiphy *wiphy,
 	if (!res)
 		return NULL;
 
-	if (channel->band == NL80211_BAND_60GHZ) {
+	if (channel->band == IEEE80211_BAND_60GHZ) {
 		bss_type = res->pub.capability & WLAN_CAPABILITY_DMG_TYPE_MASK;
 		if (bss_type == WLAN_CAPABILITY_DMG_TYPE_AP ||
 		    bss_type == WLAN_CAPABILITY_DMG_TYPE_PBSS)
@@ -1182,7 +1158,7 @@ cfg80211_inform_bss_frame_data(struct wiphy *wiphy,
 	if (!res)
 		return NULL;
 
-	if (channel->band == NL80211_BAND_60GHZ) {
+	if (channel->band == IEEE80211_BAND_60GHZ) {
 		bss_type = res->pub.capability & WLAN_CAPABILITY_DMG_TYPE_MASK;
 		if (bss_type == WLAN_CAPABILITY_DMG_TYPE_AP ||
 		    bss_type == WLAN_CAPABILITY_DMG_TYPE_PBSS)
@@ -1278,7 +1254,7 @@ int cfg80211_wext_siwscan(struct net_device *dev,
 	struct iw_scan_req *wreq = NULL;
 	struct cfg80211_scan_request *creq = NULL;
 	int i, err, n_channels = 0;
-	enum nl80211_band band;
+	enum ieee80211_band band;
 
 	if (!netif_running(dev))
 		return -ENETDOWN;
@@ -1322,7 +1298,7 @@ int cfg80211_wext_siwscan(struct net_device *dev,
 
 	/* translate "Scan on frequencies" request */
 	i = 0;
-	for (band = 0; band < NUM_NL80211_BANDS; band++) {
+	for (band = 0; band < IEEE80211_NUM_BANDS; band++) {
 		int j;
 
 		if (!wiphy->bands[band])
@@ -1382,7 +1358,7 @@ int cfg80211_wext_siwscan(struct net_device *dev,
 			creq->n_ssids = 0;
 	}
 
-	for (i = 0; i < NUM_NL80211_BANDS; i++)
+	for (i = 0; i < IEEE80211_NUM_BANDS; i++)
 		if (wiphy->bands[i])
 			creq->rates[i] = (1 << wiphy->bands[i]->n_bitrates) - 1;
 

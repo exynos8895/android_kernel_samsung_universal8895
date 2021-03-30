@@ -53,11 +53,6 @@
 #include <net/netfilter/nf_nat.h>
 #include <net/netfilter/nf_nat_core.h>
 #include <net/netfilter/nf_nat_helper.h>
-#ifdef CONFIG_KNOX_NCM
-/* START_OF_KNOX_NPA */
-#include <net/ncm.h>
-/* END_OF_KNOX_NPA */
-#endif
 
 #define NF_CONNTRACK_VERSION	"0.5.0"
 
@@ -277,7 +272,7 @@ EXPORT_SYMBOL_GPL(nf_ct_get_id);
 static void
 clean_from_lists(struct nf_conn *ct)
 {
-	pr_debug("clean_from_lists(%pK)\n", ct);
+	pr_debug("clean_from_lists(%p)\n", ct);
 	hlist_nulls_del_rcu(&ct->tuplehash[IP_CT_DIR_ORIGINAL].hnnode);
 	hlist_nulls_del_rcu(&ct->tuplehash[IP_CT_DIR_REPLY].hnnode);
 
@@ -289,14 +284,6 @@ clean_from_lists(struct nf_conn *ct)
 static void nf_ct_add_to_dying_list(struct nf_conn *ct)
 {
 	struct ct_pcpu *pcpu;
-#ifdef CONFIG_KNOX_NCM
-	/* START_OF_KNOX_NPA */
-	/* send dying conntrack entry to collect data */
-	if ( (check_ncm_flag()) && (ct != NULL) && (atomic_read(&ct->startFlow)) ) {
-		knox_collect_conntrack_data(ct, NCM_FLOW_TYPE_CLOSE, 10);
-	}
-	/* END_OF_KNOX_NPA */
-	#endif
 
 	/* add this conntrack to the (per cpu) dying list */
 	ct->cpu = smp_processor_id();
@@ -378,7 +365,7 @@ destroy_conntrack(struct nf_conntrack *nfct)
 	struct net *net = nf_ct_net(ct);
 	struct nf_conntrack_l4proto *l4proto;
 
-	pr_debug("destroy_conntrack(%pK)\n", ct);
+	pr_debug("destroy_conntrack(%p)\n", ct);
 	NF_CT_ASSERT(atomic_read(&nfct->use) == 0);
 	NF_CT_ASSERT(!timer_pending(&ct->timeout));
 
@@ -409,7 +396,7 @@ destroy_conntrack(struct nf_conntrack *nfct)
 	if (ct->master)
 		nf_ct_put(ct->master);
 
-	pr_debug("destroy_conntrack: returning ct=%pK to slab\n", ct);
+	pr_debug("destroy_conntrack: returning ct=%p to slab\n", ct);
 	nf_conntrack_free(ct);
 }
 
@@ -677,7 +664,7 @@ __nf_conntrack_confirm(struct sk_buff *skb)
 	 * confirmed us.
 	 */
 	NF_CT_ASSERT(!nf_ct_is_confirmed(ct));
-	pr_debug("Confirming conntrack %pK\n", ct);
+	pr_debug("Confirming conntrack %p\n", ct);
 	/* We have to check the DYING flag after unlink to prevent
 	 * a race against nf_ct_get_next_corpse() possibly called from
 	 * user context, else we insert an already 'dead' hash, blocking
@@ -874,11 +861,7 @@ __nf_conntrack_alloc(struct net *net,
 		     gfp_t gfp, u32 hash)
 {
 	struct nf_conn *ct;
-	#ifdef CONFIG_KNOX_NCM
-    /* START_OF_KNOX_NPA */
-	struct timespec open_timespec;
-	/* END_OF_KNOX_NPA */
-	#endif
+
 	if (unlikely(!nf_conntrack_hash_rnd)) {
 		init_nf_conntrack_hash_rnd();
 		/* recompute the hash as nf_conntrack_hash_rnd is initialized */
@@ -906,26 +889,6 @@ __nf_conntrack_alloc(struct net *net,
 		goto out;
 
 	spin_lock_init(&ct->lock);
-	#ifdef CONFIG_KNOX_NCM
-	/* START_OF_KNOX_NPA */
-	/* initialize the conntrack structure members when memory is allocated */
-	if (ct != NULL) {
-		open_timespec = current_kernel_time();
-		ct->open_time = open_timespec.tv_sec;
-		ct->knox_uid = 0;
-		ct->knox_pid = 0;
-		memset(ct->process_name,'\0',sizeof(ct->process_name));
-		memset(ct->domain_name,'\0',sizeof(ct->domain_name));
-		ct->knox_puid = 0;
-		ct->knox_ppid = 0;
-		memset(ct->parent_process_name,'\0',sizeof(ct->parent_process_name));
-		ct->knox_sent = 0;
-		ct->knox_recv = 0;
-		memset(ct->interface_name,'\0',sizeof(ct->interface_name));
-		atomic_set(&ct->startFlow, 0);
-	}
-	/* END_OF_KNOX_NPA */
-	#endif
 	ct->tuplehash[IP_CT_DIR_ORIGINAL].tuple = *orig;
 	ct->tuplehash[IP_CT_DIR_ORIGINAL].hnnode.pprev = NULL;
 	ct->tuplehash[IP_CT_DIR_REPLY].tuple = *repl;
@@ -1051,7 +1014,7 @@ init_conntrack(struct net *net, struct nf_conn *tmpl,
 		spin_lock(&nf_conntrack_expect_lock);
 		exp = nf_ct_find_expectation(net, zone, tuple);
 		if (exp) {
-			pr_debug("conntrack: expectation arrives ct=%pK exp=%pK\n",
+			pr_debug("conntrack: expectation arrives ct=%p exp=%p\n",
 				 ct, exp);
 			/* Welcome, Mr. Bond.  We've been expecting you... */
 			__set_bit(IPS_EXPECTED_BIT, &ct->status);
@@ -1142,14 +1105,14 @@ resolve_normal_ct(struct net *net, struct nf_conn *tmpl,
 	} else {
 		/* Once we've had two way comms, always ESTABLISHED. */
 		if (test_bit(IPS_SEEN_REPLY_BIT, &ct->status)) {
-			pr_debug("nf_conntrack_in: normal packet for %pK\n", ct);
+			pr_debug("nf_conntrack_in: normal packet for %p\n", ct);
 			*ctinfo = IP_CT_ESTABLISHED;
 		} else if (test_bit(IPS_EXPECTED_BIT, &ct->status)) {
-			pr_debug("nf_conntrack_in: related packet for %pK\n",
+			pr_debug("nf_conntrack_in: related packet for %p\n",
 				 ct);
 			*ctinfo = IP_CT_RELATED;
 		} else {
-			pr_debug("nf_conntrack_in: new packet for %pK\n", ct);
+			pr_debug("nf_conntrack_in: new packet for %p\n", ct);
 			*ctinfo = IP_CT_NEW;
 		}
 		*set_reply = 0;
@@ -1291,7 +1254,7 @@ void nf_conntrack_alter_reply(struct nf_conn *ct,
 	/* Should be unconfirmed, so not in hash table yet */
 	NF_CT_ASSERT(!nf_ct_is_confirmed(ct));
 
-	pr_debug("Altering reply tuple of %pK to ", ct);
+	pr_debug("Altering reply tuple of %p to ", ct);
 	nf_ct_dump_tuple(newreply);
 
 	ct->tuplehash[IP_CT_DIR_REPLY].tuple = *newreply;

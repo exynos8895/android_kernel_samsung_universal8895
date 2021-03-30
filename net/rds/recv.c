@@ -550,7 +550,6 @@ void rds_inc_info_copy(struct rds_incoming *inc,
 		minfo.lport = inc->i_hdr.h_sport;
 		minfo.fport = inc->i_hdr.h_dport;
 	}
-	
 
 	minfo.flags = 0;
 

@@ -23,9 +23,6 @@
 #include <net/route.h>
 #include <net/tcp_states.h>
 #include <net/xfrm.h>
-#ifdef CONFIG_MPTCP
-#include <net/mptcp.h>
-#endif
 #include <net/tcp.h>
 
 #ifdef INET_CSK_DEBUG
@@ -574,12 +571,8 @@ static void reqsk_timer_handler(unsigned long data)
 	int qlen, expire = 0, resend = 0;
 	int max_retries, thresh;
 	u8 defer_accept;
-#ifdef CONFIG_MPTCP
-	if (sk_state_load(sk_listener) != TCP_LISTEN &&
-			!is_meta_sk(sk_listener))
-#else
+
 	if (sk_state_load(sk_listener) != TCP_LISTEN)
-#endif
 		goto drop;
 
 	max_retries = icsk->icsk_syn_retries ? : sysctl_tcp_synack_retries;
@@ -867,16 +860,7 @@ void inet_csk_listen_stop(struct sock *sk)
 	 */
 	while ((req = reqsk_queue_remove(queue, sk)) != NULL) {
 		struct sock *child = req->sk;
-#ifdef CONFIG_MPTCP
-		bool mutex_taken = false;
-#endif
 
-#ifdef CONFIG_MPTCP
-		if (is_meta_sk(child)) {
-			mutex_lock(&tcp_sk(child)->mpcb->mpcb_mutex);
-			mutex_taken = true;
-		}
-#endif
 		local_bh_disable();
 		bh_lock_sock(child);
 		WARN_ON(sock_owned_by_user(child));
@@ -886,10 +870,6 @@ void inet_csk_listen_stop(struct sock *sk)
 		reqsk_put(req);
 		bh_unlock_sock(child);
 		local_bh_enable();
-#ifdef CONFIG_MPTCP
-		if (mutex_taken)
-			mutex_unlock(&tcp_sk(child)->mpcb->mpcb_mutex);
-#endif
 		sock_put(child);
 
 		cond_resched();
