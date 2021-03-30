@@ -599,7 +599,7 @@ __read_extent_tree_block(const char *function, unsigned int line,
 	if (buffer_verified(bh) && !(flags & EXT4_EX_FORCE_CACHE))
 		return bh;
 	err = __ext4_ext_check(function, line, inode,
-			       ext_block_hdr(bh), depth, pblk);
+			       ext_block_hdr(bh), depth, pblk, (NULL));
 	if (err)
 		goto errout;
 	set_buffer_verified(bh);
