@@ -76,6 +76,7 @@
 #include <linux/highmem.h>
 #include <linux/capability.h>
 #include <linux/user_namespace.h>
+#include <soc/samsung/exynos-modem-ctrl.h>
 
 struct kmem_cache *skbuff_head_cache __read_mostly;
 static struct kmem_cache *skbuff_fclone_cache __read_mostly;
@@ -577,6 +578,9 @@ static void skb_clone_fraglist(struct sk_buff *skb)
 static void skb_free_head(struct sk_buff *skb)
 {
 	unsigned char *head = skb->head;
+
+	if (skb_free_head_cp_zerocopy(skb))
+		return;
 
 	if (skb->head_frag)
 		skb_free_frag(head);
