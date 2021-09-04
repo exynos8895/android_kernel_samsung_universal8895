@@ -33,10 +33,6 @@
 #include <linux/device.h>
 #include <linux/wakelock.h>
 
-#if defined(CONFIG_BATTERY_SBM_DATA)
-#include "sec_battery_sbm.h"
-#endif
-
 /* definitions */
 #define SEC_BATTERY_CABLE_HV_WIRELESS_ETX	100
 
@@ -54,20 +50,26 @@ enum power_supply_ext_property {
 	POWER_SUPPLY_EXT_PROP_AICL_CURRENT,
 	POWER_SUPPLY_EXT_PROP_CHECK_MULTI_CHARGE,
 	POWER_SUPPLY_EXT_PROP_CHIP_ID,
+	POWER_SUPPLY_EXT_PROP_ERROR_CAUSE,
 	POWER_SUPPLY_EXT_PROP_SYSOVLO,
 	POWER_SUPPLY_EXT_PROP_VBAT_OVP,
-#if defined(CONFIG_BATTERY_SBM_DATA)	
-	POWER_SUPPLY_EXT_PROP_SBM_DATA,
-#endif	
 	POWER_SUPPLY_EXT_PROP_USB_CONFIGURE,
 	POWER_SUPPLY_EXT_PROP_WATER_DETECT,
 	POWER_SUPPLY_EXT_PROP_SURGE,
 	POWER_SUPPLY_EXT_PROP_SUB_PBA_TEMP_REC,
+	POWER_SUPPLY_EXT_PROP_OVERHEAT_NOTIFY,
+	POWER_SUPPLY_EXT_PROP_CHARGE_POWER,
+	POWER_SUPPLY_EXT_PROP_MEASURE_SYS,
+	POWER_SUPPLY_EXT_PROP_MEASURE_INPUT,
 	POWER_SUPPLY_EXT_PROP_HV_DISABLE,
 	POWER_SUPPLY_EXT_PROP_WC_CONTROL,
 	POWER_SUPPLY_EXT_PROP_CALL_EVENT,
+	POWER_SUPPLY_EXT_PROP_CHGINSEL,
+	POWER_SUPPLY_EXT_PROP_OVERHEAT_HICCUP,
 	POWER_SUPPLY_EXT_PROP_MONITOR_WORK,
 	POWER_SUPPLY_EXT_PROP_PAD_VOLT_CTRL,
+	POWER_SUPPLY_EXT_PROP_MST_STATUS,
+	POWER_SUPPLY_EXT_PROP_JIG_GPIO,
 	POWER_SUPPLY_EXT_PROP_WPC_EN,
 	POWER_SUPPLY_EXT_PROP_WPC_EN_MST,
 };
@@ -973,11 +975,6 @@ struct sec_charger_platform_data {
 	sec_battery_full_charged_t full_check_type_2nd;
 
 	sec_charger_functions_t chg_functions_setting;
-
-#if defined(CONFIG_BATTERY_SBM_DATA)
-	int sbm_data_type;
-	char sbm_str[512];
-#endif		
 };
 
 struct sec_fuelgauge_platform_data {
@@ -1016,11 +1013,6 @@ struct sec_fuelgauge_platform_data {
 #if defined(CONFIG_BATTERY_AGE_FORECAST)
 	unsigned int full_condition_soc;
 #endif
-
-#if defined(CONFIG_BATTERY_SBM_DATA)
-	int sbm_data_type;
-	char sbm_str[512];
-#endif	
 };
 
 #define sec_battery_platform_data_t \

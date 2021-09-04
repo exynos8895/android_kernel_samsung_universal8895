@@ -1491,41 +1491,6 @@ static int calc_ttf(struct max77865_fuelgauge_data *fuelgauge, union power_suppl
                 return 60; //minimum 1minutes
 }
 
-#if defined(CONFIG_BATTERY_SBM_DATA)
-static bool make_fuelgauge_sbm_data(struct max77865_fuelgauge_data *fuelgauge,
-			union power_supply_propval *val)
-{
-	char* str = fuelgauge->pdata->sbm_str;
-
-	pr_err("%s \n", __func__);
-
-	if (!str)
-		return false;
-
-	if (!is_sbm_data_type(fuelgauge->pdata->sbm_data_type))
-		return false;
-
-	switch(fuelgauge->pdata->sbm_data_type) {
-		case SBM_DATA_FULL_1ST:
-		case SBM_DATA_FULL_2ND:
-			sprintf(str, ",cap_rep:%d,rep_cap:%d", 
-				max77865_fg_read_fullcaprep(fuelgauge),
-				max77865_fg_read_repcap(fuelgauge));
-			break;
-		case SBM_DATA_FG_VEMPTY:
-			sprintf(str, ",vcell:%d,ocv:%d", 
-				max77865_fg_read_vcell(fuelgauge),
-				max77865_fg_read_vfocv(fuelgauge));
-			break;
-		case SBM_DATA_FG_FULL_LOG:
-		default:
-			return false;
-	}
-	val->strval = str;
-	return true;
-}
-#endif
-
 static int max77865_fg_get_property(struct power_supply *psy,
 			     enum power_supply_property psp,
 			     union power_supply_propval *val)
@@ -1534,9 +1499,7 @@ static int max77865_fg_get_property(struct power_supply *psy,
 	static int abnormal_current_cnt = 0;
 	union power_supply_propval value;
 	u8 data[2] = {0, 0};
-#if defined(CONFIG_BATTERY_SBM_DATA)
     enum power_supply_ext_property ext_psp = psp;
-#endif
 
 	switch (psp) {
 		/* Cell voltage (VCELL, mV) */
@@ -1769,18 +1732,12 @@ static int max77865_fg_get_property(struct power_supply *psy,
 		val->intval = (fuelgauge->battery_data->Capacity * fuelgauge->fg_resistor / 2) * fuelgauge->raw_capacity;
 		pr_info("%s: Remaining Capacity=%d uAh\n", __func__, val->intval);
 		break;
-#if defined(CONFIG_BATTERY_SBM_DATA)
 	case POWER_SUPPLY_PROP_MAX ... POWER_SUPPLY_EXT_PROP_MAX:
-		switch (ext_psp) {				
-			case POWER_SUPPLY_EXT_PROP_SBM_DATA:				
-				if (!make_fuelgauge_sbm_data(fuelgauge, val))
-					return -ENODATA;
-				break;				
+		switch (ext_psp) {
 			default:
 				return -EINVAL;
-		}		
+		}
 		break;
-#endif
 	default:
 		return -EINVAL;
 	}
@@ -1797,9 +1754,7 @@ static int max77865_fg_set_property(struct power_supply *psy,
 	struct max77865_fuelgauge_data *fuelgauge = power_supply_get_drvdata(psy);
 	u8 data[2] = {0, 0};
 	static bool low_temp_wa = false;
-#if defined(CONFIG_BATTERY_SBM_DATA)	
 	enum power_supply_ext_property ext_psp = psp;
-#endif
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_STATUS:
@@ -1925,17 +1880,12 @@ static int max77865_fg_set_property(struct power_supply *psy,
 		max77865_bulk_read(fuelgauge->i2c, FILTER_CFG_REG, 2, data);
 		pr_debug("%s: FilterCFG=0x%04X\n", __func__, data[1] << 8 | data[0]);
 		break;
-#if defined(CONFIG_BATTERY_SBM_DATA)
 	case POWER_SUPPLY_PROP_MAX ... POWER_SUPPLY_EXT_PROP_MAX:
 		switch (ext_psp) {
-			case POWER_SUPPLY_EXT_PROP_SBM_DATA:				
-				fuelgauge->pdata->sbm_data_type = val->intval;
-				break;
 			default:
 				return -EINVAL;
 		}
 		break;
-#endif			
 	default:
 		return -EINVAL;
 	}
@@ -2371,10 +2321,6 @@ static int max77865_fuelgauge_probe(struct platform_device *pdev)
 	fuelgauge->i2c = max77865->fuelgauge;
 	fuelgauge->pmic = max77865->i2c;
 	fuelgauge->max77865_pdata = pdata;
-
-#if defined(CONFIG_BATTERY_SBM_DATA)
-	fuelgauge->pdata->sbm_data_type = SBM_DATA_NONE;
-#endif
 
 #if defined(CONFIG_OF)
 	fuelgauge->battery_data = kzalloc(sizeof(struct battery_data_t),

@@ -471,13 +471,6 @@ config STORE_MODE
        help
 	 Say Y to enable CONFIG_STORE_MODE
 
-config BATTERY_SBM_DATA
-	tristate "battery manager data"
-	default n
-	depends on BATTERY_SAMSUNG
-	help
-	Say Y to use update battery manager data
-
 config QH_ALGORITHM
        bool "enable QH algorithm"
        default n

@@ -447,12 +447,6 @@ struct sec_battery_info {
 	unsigned long prev_safety_time;
 	unsigned long expired_time;
 	unsigned long cal_safety_time;
-#if defined(CONFIG_BATTERY_SBM_DATA)
-	struct mutex sbmlock;
-	bool sbm_data;
-	char* strSbmData;
-	char* strSbmDataB;
-#endif
 	int fg_reset;
 };
 
@@ -634,9 +628,6 @@ enum {
 	PREV_BATTERY_DATA,
 	PREV_BATTERY_INFO,
 #endif
-#if defined(CONFIG_BATTERY_SBM_DATA)
-	SBM_DATA,
-#endif
 	SAFETY_TIMER_SET,
 	BATT_SWELLING_CONTROL,
 	SAFETY_TIMER_INFO,
@@ -682,11 +673,4 @@ extern bool sec_bat_cisd_check(struct sec_battery_info *battery);
 extern void sec_battery_cisd_init(struct sec_battery_info *battery);
 extern void set_cisd_pad_data(struct sec_battery_info *battery, const char* buf);
 #endif
-#if defined(CONFIG_BATTERY_SBM_DATA)
-extern bool sec_bat_add_sbm_data(struct sec_battery_info *battery, int data_type);
-extern void sec_bat_get_sbm_data_string(union power_supply_propval *val);
-extern void sec_bat_init_sbm(struct sec_battery_info *battery);
-extern void sec_bat_exit_sbm(struct sec_battery_info *battery);
-#endif
-
 #endif /* __SEC_BATTERY_H */

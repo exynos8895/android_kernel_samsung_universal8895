@@ -164,9 +164,6 @@ static struct device_attribute sec_battery_attrs[] = {
 	SEC_BATTERY_ATTR(prev_battery_data),
 	SEC_BATTERY_ATTR(prev_battery_info),
 #endif
-#if defined(CONFIG_BATTERY_SBM_DATA)
-	SEC_BATTERY_ATTR(sbm_data),
-#endif
 	SEC_BATTERY_ATTR(safety_timer_set),
 	SEC_BATTERY_ATTR(batt_swelling_control),
 	SEC_BATTERY_ATTR(safety_timer_info),
@@ -1051,10 +1048,6 @@ static int sec_bat_set_charge(
 				battery->pdata->charging_reset_time;
 		}
 		battery->charging_block = false;
-
-#if defined(CONFIG_BATTERY_SBM_DATA)
-		sec_bat_add_sbm_data(battery, SBM_DATA_SET_CHARGE);
-#endif
 	} else {
 		battery->charging_start_time = 0;
 		battery->charging_passed_time = 0;
@@ -2064,9 +2057,6 @@ static bool sec_bat_temperature_check(
 	if (pre_health != battery->health) {
 		battery->health_change = true;
 		dev_info(battery->dev, "%s, health_change true\n", __func__);
-#if defined(CONFIG_BATTERY_SBM_DATA)
-		sec_bat_add_sbm_data(battery, SBM_DATA_TEMP);
-#endif
 	} else {
 		battery->health_change = false;
 	}
@@ -2573,9 +2563,6 @@ static void sec_bat_do_fullcharged(
 				POWER_SUPPLY_PROP_CHARGING_ENABLED, value);
 		sec_bat_set_charging_current(battery);
 		sec_bat_set_charge(battery, SEC_BAT_CHG_MODE_CHARGING);
-#if defined(CONFIG_BATTERY_SBM_DATA)
-		sec_bat_add_sbm_data(battery, SBM_DATA_FULL_1ST);
-#endif		
 	} else {
 		battery->charging_mode = SEC_BATTERY_CHARGING_NONE;
 #if defined(CONFIG_BATTERY_CISD)
@@ -2612,9 +2599,6 @@ static void sec_bat_do_fullcharged(
 		value.intval = POWER_SUPPLY_STATUS_FULL;
 		psy_do_property(battery->pdata->fuelgauge_name, set,
 			POWER_SUPPLY_PROP_STATUS, value);
-#if defined(CONFIG_BATTERY_SBM_DATA)
-		sec_bat_add_sbm_data(battery, SBM_DATA_FULL_2ND);
-#endif		
 	}
 
 	/* platform can NOT get information of battery
@@ -3610,10 +3594,6 @@ static void sec_bat_monitor_work(
 	/* 6. additional check */
 	if (battery->pdata->monitor_additional_check)
 		battery->pdata->monitor_additional_check();
-
-#if defined(CONFIG_BATTERY_SBM_DATA)
-	sec_bat_add_sbm_data(battery, SBM_DATA_COMMON_INFO);
-#endif
 
 	if ((battery->cable_type == SEC_BATTERY_CABLE_WIRELESS ||
 		battery->cable_type == SEC_BATTERY_CABLE_WIRELESS_STAND ||
@@ -5049,17 +5029,6 @@ ssize_t sec_bat_show_attrs(struct device *dev,
 		}
 		break;
 #endif
-#if defined(CONFIG_BATTERY_SBM_DATA)
-	case SBM_DATA:
-		if (battery->sbm_data) {
-			sec_bat_get_sbm_data_string(&value);
-			i += scnprintf(buf + i, PAGE_SIZE - i, "%s\n", value.strval);
-			battery->sbm_data = false;
-		} else {
-			i = -EINVAL;
-		}
-		break;
-#endif
 	case SAFETY_TIMER_SET:
 		i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n",
 			       battery->safety_timer_set);
@@ -6288,10 +6257,6 @@ ssize_t sec_bat_store_attrs(
 	case PREV_BATTERY_INFO:
 		break;
 #endif
-#if defined(CONFIG_BATTERY_SBM_DATA)
-	case SBM_DATA:
-		break;
-#endif
 	case SAFETY_TIMER_SET:
 		if (sscanf(buf, "%10d\n", &x) == 1) {
 			if (x) {
@@ -6385,7 +6350,7 @@ static int sec_bat_set_property(struct power_supply *psy,
 	int current_cable_type = SEC_BATTERY_CABLE_NONE;
 	int full_check_type = SEC_BATTERY_FULLCHARGED_NONE;
 	union power_supply_propval value = {0, };
-	enum power_supply_ext_property ext_psp = (enum power_supply_ext_property) psp;
+	enum power_supply_ext_property ext_psp = psp;
 
 	dev_dbg(battery->dev,
 		"%s: (%d,%d)\n", __func__, psp, val->intval);
@@ -6645,7 +6610,7 @@ static int sec_bat_get_property(struct power_supply *psy,
 {
 	struct sec_battery_info *battery = power_supply_get_drvdata(psy);
 	union power_supply_propval value = {0, };
-	enum power_supply_ext_property ext_psp = (enum power_supply_ext_property) psp;
+	enum power_supply_ext_property ext_psp = psp;
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_STATUS:
@@ -6880,7 +6845,7 @@ static int sec_ac_get_property(struct power_supply *psy,
 			       union power_supply_propval *val)
 {
 	struct sec_battery_info *battery = power_supply_get_drvdata(psy);
-	enum power_supply_ext_property ext_psp = (enum power_supply_ext_property) psp;
+	enum power_supply_ext_property ext_psp = psp;
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_ONLINE:
@@ -6975,7 +6940,7 @@ static int sec_wireless_set_property(struct power_supply *psy,
 				const union power_supply_propval *val)
 {
 	struct sec_battery_info *battery = power_supply_get_drvdata(psy);
-	enum power_supply_ext_property ext_psp = (enum power_supply_ext_property) psp;
+	enum power_supply_ext_property ext_psp = psp;
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_ONLINE:
@@ -9468,10 +9433,6 @@ static int sec_battery_probe(struct platform_device *pdev)
 	mutex_init(&battery->current_eventlock);
 	mutex_init(&battery->typec_notylock);
 	mutex_init(&battery->wclock);
-#if defined(CONFIG_BATTERY_SBM_DATA)
-	mutex_init(&battery->sbmlock);
-	sec_bat_init_sbm(battery);
-#endif
 
 	dev_dbg(battery->dev, "%s: ADC init\n", __func__);
 
@@ -9640,10 +9601,6 @@ static int sec_battery_probe(struct platform_device *pdev)
 		sec_bat_set_current_event(battery,
 			SEC_BAT_CURRENT_EVENT_HV_DISABLE, SEC_BAT_CURRENT_EVENT_HV_DISABLE);
 	}
-
-#if defined(CONFIG_BATTERY_SBM_DATA)
-	battery->sbm_data = false;
-#endif
 
 #if defined(CONFIG_CALC_TIME_TO_FULL)
 	battery->timetofull = -1;
@@ -9863,10 +9820,6 @@ err_irq:
 	mutex_destroy(&battery->current_eventlock);
 	mutex_destroy(&battery->typec_notylock);
 	mutex_destroy(&battery->wclock);
-#if defined(CONFIG_BATTERY_SBM_DATA)
-	mutex_destroy(&battery->sbmlock);
-	sec_bat_exit_sbm(battery);
-#endif	
 	kfree(pdata);
 err_bat_free:
 	kfree(battery);
@@ -9910,11 +9863,6 @@ static int sec_battery_remove(struct platform_device *pdev)
 	mutex_destroy(&battery->current_eventlock);
 	mutex_destroy(&battery->typec_notylock);
 	mutex_destroy(&battery->wclock);
-
-#if defined(CONFIG_BATTERY_SBM_DATA)
-	mutex_destroy(&battery->sbmlock);
-	sec_bat_exit_sbm(battery);
-#endif
 
 #ifdef CONFIG_OF
 	adc_exit(battery);
