@@ -7,14 +7,16 @@ flock -n 9 || exit 0
 
 [[ $(( $(date +%s) - $(stat -c %Y "net/wireguard/.check" 2>/dev/null || echo 0) )) -gt 86400 ]] || exit 0
 
-while read -r distro package version _; do
-	if [[ $distro == upstream && $package == linuxcompat ]]; then
-		VERSION="$version"
-		break
-	fi
-done < <(curl -A "$USER_AGENT" -LSs --connect-timeout 30 https://build.wireguard.com/distros.txt)
+#while read -r distro package version _; do
+#	if [[ $distro == upstream && $package == linuxcompat ]]; then
+#		VERSION="$version"
+#		break
+#	fi
+#done < <(curl -A "$USER_AGENT" -LSs --connect-timeout 30 https://build.wireguard.com/distros.txt)
 
-[[ -n $VERSION ]]
+#[[ -n $VERSION ]]
+
+VERSION=1.0.20210606
 
 if [[ -f net/wireguard/version.h && $(< net/wireguard/version.h) == *$VERSION* ]]; then
 	touch net/wireguard/.check
