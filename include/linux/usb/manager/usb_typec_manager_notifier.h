@@ -143,7 +143,7 @@ typedef struct _manager_data_t
 	int usb_highspeed_count;
 	int usb_superspeed_count;
 	int waterChg_count;
-
+	int water_cable_type;
 	unsigned long waterDet_duration;
 	unsigned long waterDet_time;
 	unsigned long dryDet_time;

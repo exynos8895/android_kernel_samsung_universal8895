@@ -1037,6 +1037,13 @@ static int manager_notifier_init(void)
 	typec_manager.is_UFPS = 0;
 	typec_manager.ccic_rid_state = RID_UNDEFINED;
 	typec_manager.pd = NULL;
+#if defined(CONFIG_HICCUP_CHARGER) && defined(CONFIG_BATTERY_SAMSUNG)
+	typec_manager.water_cable_type = lpcharge ?
+		ATTACHED_DEV_UNDEFINED_RANGE_MUIC :
+		ATTACHED_DEV_HICCUP_MUIC;
+#else
+	typec_manager.water_cable_type = ATTACHED_DEV_UNDEFINED_RANGE_MUIC;
+#endif
 
 	BLOCKING_INIT_NOTIFIER_HEAD(&(typec_manager.manager_ccic_notifier));
 	BLOCKING_INIT_NOTIFIER_HEAD(&(typec_manager.manager_muic_notifier));

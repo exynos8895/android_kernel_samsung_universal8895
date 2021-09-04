@@ -1,6 +1,6 @@
 /*
- * max77865_fuelgauge.h
- * Samsung max77865 Fuel Gauge Header
+ * max77705_fuelgauge.h
+ * Samsung max77705 Fuel Gauge Header
  *
  * Copyright (C) 2015 Samsung Electronics, Inc.
  *
@@ -15,12 +15,12 @@
  *
  */
 
-#ifndef __MAX77865_FUELGAUGE_H
-#define __MAX77865_FUELGAUGE_H __FILE__
+#ifndef __MAX77705_FUELGAUGE_H
+#define __MAX77705_FUELGAUGE_H __FILE__
 
 #include <linux/mfd/core.h>
-#include <linux/mfd/max77865.h>
-#include <linux/mfd/max77865-private.h>
+#include <linux/mfd/max77705.h>
+#include <linux/mfd/max77705-private.h>
 #include <linux/regulator/machine.h>
 #include "../sec_charging_common.h"
 
@@ -36,13 +36,30 @@
 #define CAPACITY_SCALE_DEFAULT_CURRENT 1000
 #define CAPACITY_SCALE_HV_CURRENT 600
 
-enum max77865_vempty_mode {
+enum max77705_vempty_mode {
 	VEMPTY_MODE_HW = 0,
 	VEMPTY_MODE_SW,
 	VEMPTY_MODE_SW_VALERT,
 	VEMPTY_MODE_SW_RECOVERY,
 };
 
+enum {
+	FG_DATA,
+};
+
+ssize_t max77705_fg_show_attrs(struct device *dev,
+				struct device_attribute *attr, char *buf);
+
+ssize_t max77705_fg_store_attrs(struct device *dev,
+				struct device_attribute *attr,
+				const char *buf, size_t count);
+
+#define MAX77705_FG_ATTR(_name)				\
+{							\
+	.attr = {.name = #_name, .mode = 0660},	\
+	.show = max77705_fg_show_attrs,			\
+	.store = max77705_fg_store_attrs,			\
+}
 struct sec_fg_info {
 	/* test print count */
 	int pr_cnt;
@@ -79,6 +96,11 @@ enum {
 	FG_CYCLE,
 	FG_QH,
 	FG_QH_VF_SOC,
+	FG_ISYS,
+	FG_ISYS_AVG,
+	FG_VSYS,
+	FG_IIN,
+	FG_VBYP,
 };
 
 enum {
@@ -129,18 +151,20 @@ struct battery_data_t {
 #define POWER_OFF_VOLTAGE_HIGH_MARGIN	3500
 #define POWER_OFF_VOLTAGE_LOW_MARGIN	3400
 
-struct cv_slope{
+#define LEARNING_QRTABLE 0x0001
+
+struct cv_slope {
 	int fg_current;
 	int soc;
 	int time;
 };
 
-struct max77865_fuelgauge_data {
+struct max77705_fuelgauge_data {
 	struct device           *dev;
 	struct i2c_client       *i2c;
 	struct i2c_client       *pmic;
 	struct mutex            fuelgauge_mutex;
-	struct max77865_platform_data *max77865_pdata;
+	struct max77705_platform_data *max77705_pdata;
 	sec_fuelgauge_platform_data_t *pdata;
 	struct power_supply	      *psy_fg;
 	struct delayed_work isr_work;
@@ -148,7 +172,7 @@ struct max77865_fuelgauge_data {
 	int cable_type;
 	bool is_charging;
 
-	/* HW-dedicated fuel guage info structure
+	/* HW-dedicated fuel gauge info structure
 	 * used in individual fuel gauge file only
 	 * (ex. dummy_fuelgauge.c)
 	 */
@@ -177,12 +201,13 @@ struct max77865_fuelgauge_data {
 	int current_avg;
 	unsigned int ttf_capacity;
 	struct cv_slope *cv_data;
-	int cv_data_lenth;
+	int cv_data_length;
 
 	bool using_temp_compensation;
 	bool using_hw_vempty;
 	unsigned int vempty_mode;
 	int temperature;
+	bool vempty_init_flag;
 
 	int low_temp_limit;
 
@@ -197,4 +222,4 @@ struct max77865_fuelgauge_data {
 #endif
 };
 
-#endif /* __MAX77865_FUELGAUGE_H */
+#endif /* __MAX77705_FUELGAUGE_H */

@@ -84,6 +84,8 @@ enum sec_battery_rp_curr {
 	RP_CURRENT_RP1 = 500,
 	RP_CURRENT_RP2 = 1500,
 	RP_CURRENT_RP3 = 3000,
+	RP_CURRENT_LDU_RP3 = 2100,
+	RP_CURRENT_ABNORMAL_RP3 = 1800,
 };
 
 enum power_supply_ext_health {
@@ -94,40 +96,40 @@ enum power_supply_ext_health {
 
 enum sec_battery_cable {
 	SEC_BATTERY_CABLE_UNKNOWN = 0,
-	SEC_BATTERY_CABLE_NONE,               	/* 1 */
-	SEC_BATTERY_CABLE_PREPARE_TA,         	/* 2 */
-	SEC_BATTERY_CABLE_TA,                 	/* 3 */
-	SEC_BATTERY_CABLE_USB,                	/* 4 */
-	SEC_BATTERY_CABLE_USB_CDP,            	/* 5 */
-	SEC_BATTERY_CABLE_9V_TA,              	/* 6 */
-	SEC_BATTERY_CABLE_9V_ERR,             	/* 7 */
-	SEC_BATTERY_CABLE_9V_UNKNOWN,         	/* 8 */
-	SEC_BATTERY_CABLE_12V_TA,             	/* 9 */
-	SEC_BATTERY_CABLE_WIRELESS,           	/* 10 */
-	SEC_BATTERY_CABLE_HV_WIRELESS,        	/* 11 */
-	SEC_BATTERY_CABLE_PMA_WIRELESS,       	/* 12 */
-	SEC_BATTERY_CABLE_WIRELESS_PACK,      	/* 13 */
-	SEC_BATTERY_CABLE_WIRELESS_HV_PACK,		/* 14 */
-	SEC_BATTERY_CABLE_WIRELESS_STAND,     	/* 15 */
-	SEC_BATTERY_CABLE_WIRELESS_HV_STAND,  	/* 16 */
-	SEC_BATTERY_CABLE_QC20,               	/* 17 */
-	SEC_BATTERY_CABLE_QC30,               	/* 18 */
-	SEC_BATTERY_CABLE_PDIC,                	/* 19 */
-	SEC_BATTERY_CABLE_UARTOFF,            	/* 20 */
-	SEC_BATTERY_CABLE_OTG,                	/* 21 */
-	SEC_BATTERY_CABLE_LAN_HUB,            	/* 22 */
-	SEC_BATTERY_CABLE_POWER_SHARING,      	/* 23 */
-	SEC_BATTERY_CABLE_HMT_CONNECTED,      	/* 24 */
-	SEC_BATTERY_CABLE_HMT_CHARGE,         	/* 25 */
-	SEC_BATTERY_CABLE_HV_TA_CHG_LIMIT,    	/* 26 */
-	SEC_BATTERY_CABLE_WIRELESS_VEHICLE,	  	/* 27 */
+	SEC_BATTERY_CABLE_NONE,			/* 1 */
+	SEC_BATTERY_CABLE_PREPARE_TA,		/* 2 */
+	SEC_BATTERY_CABLE_TA,			/* 3 */
+	SEC_BATTERY_CABLE_USB,			/* 4 */
+	SEC_BATTERY_CABLE_USB_CDP,		/* 5 */
+	SEC_BATTERY_CABLE_9V_TA,		/* 6 */
+	SEC_BATTERY_CABLE_9V_ERR,		/* 7 */
+	SEC_BATTERY_CABLE_9V_UNKNOWN,		/* 8 */
+	SEC_BATTERY_CABLE_12V_TA,		/* 9 */
+	SEC_BATTERY_CABLE_WIRELESS,		/* 10 */
+	SEC_BATTERY_CABLE_HV_WIRELESS,		/* 11 */
+	SEC_BATTERY_CABLE_PMA_WIRELESS,		/* 12 */
+	SEC_BATTERY_CABLE_WIRELESS_PACK,	/* 13 */
+	SEC_BATTERY_CABLE_WIRELESS_HV_PACK,	/* 14 */
+	SEC_BATTERY_CABLE_WIRELESS_STAND,	/* 15 */
+	SEC_BATTERY_CABLE_WIRELESS_HV_STAND,	/* 16 */
+	SEC_BATTERY_CABLE_QC20,			/* 17 */
+	SEC_BATTERY_CABLE_QC30,			/* 18 */
+	SEC_BATTERY_CABLE_PDIC,			/* 19 */
+	SEC_BATTERY_CABLE_UARTOFF,		/* 20 */
+	SEC_BATTERY_CABLE_OTG,			/* 21 */
+	SEC_BATTERY_CABLE_LAN_HUB,		/* 22 */
+	SEC_BATTERY_CABLE_POWER_SHARING,	/* 23 */
+	SEC_BATTERY_CABLE_HMT_CONNECTED,	/* 24 */
+	SEC_BATTERY_CABLE_HMT_CHARGE,		/* 25 */
+	SEC_BATTERY_CABLE_HV_TA_CHG_LIMIT,	/* 26 */
+	SEC_BATTERY_CABLE_WIRELESS_VEHICLE,		/* 27 */
 	SEC_BATTERY_CABLE_WIRELESS_HV_VEHICLE,	/* 28 */
 	SEC_BATTERY_CABLE_PREPARE_WIRELESS_HV,	/* 29 */
 	SEC_BATTERY_CABLE_TIMEOUT,	        /* 30 */
 	SEC_BATTERY_CABLE_SMART_OTG,            /* 31 */
 	SEC_BATTERY_CABLE_SMART_NOTG,           /* 32 */
-	SEC_BATTERY_CABLE_WIRELESS_TX,			/* 33 */
-	SEC_BATTERY_CABLE_MAX,                	/* 34 */
+	SEC_BATTERY_CABLE_WIRELESS_TX,		/* 33 */
+	SEC_BATTERY_CABLE_MAX,			/* 34 */
 };
 
 enum sec_battery_voltage_mode {
@@ -315,6 +317,22 @@ enum sec_battery_charging_mode {
 	SEC_BATTERY_CHARGING_RECHARGING,
 };
 
+/* POWER_SUPPLY_EXT_PROP_MEASURE_SYS */
+enum sec_battery_measure_sys {
+	SEC_BATTERY_ISYS_MA = 0,
+	SEC_BATTERY_ISYS_UA,
+	SEC_BATTERY_ISYS_AVG_MA,
+	SEC_BATTERY_ISYS_AVG_UA,
+	SEC_BATTERY_VSYS,
+};
+
+/* POWER_SUPPLY_EXT_PROP_MEASURE_INPUT */
+enum sec_battery_measure_input {
+	SEC_BATTERY_IIN_MA = 0,
+	SEC_BATTERY_IIN_UA,
+	SEC_BATTERY_VBYP,
+};
+
 enum sec_battery_wpc_en_ctrl {
 	WPC_EN_SYSFS = 0x1,
 	WPC_EN_CCIC = 0x2,
@@ -322,6 +340,10 @@ enum sec_battery_wpc_en_ctrl {
 	WPC_EN_TX = 0x8,
 	WPC_EN_MST = 0x10,
 };
+
+#define SEC_BAT_ERROR_CAUSE_NONE		0x0000
+#define SEC_BAT_ERROR_CAUSE_FG_INIT_FAIL	0x0001
+#define SEC_BAT_ERROR_CAUSE_I2C_FAIL		0xFFFFFFFF
 
 struct sec_bat_adc_api {
 	bool (*init)(struct platform_device *);
@@ -599,6 +621,9 @@ struct sec_age_data {
 	unsigned int recharge_condition_vcell;
 	unsigned int full_condition_vcell;
 	unsigned int full_condition_soc;
+#if defined(CONFIG_BATTERY_AGE_FORECAST_B2B)
+	unsigned int max_charging_current;
+#endif
 };
 
 #define sec_age_data_t \
@@ -650,6 +675,7 @@ struct sec_battery_platform_data {
 	unsigned int pre_wc_afc_input_current;
 	unsigned int store_mode_afc_input_current;
 	unsigned int store_mode_hv_wireless_input_current;
+	unsigned int prepare_ta_delay;
 
 	char *pmic_name;
 
@@ -697,11 +723,6 @@ struct sec_battery_platform_data {
 	unsigned int swelling_high_rechg_voltage;
 	unsigned int swelling_low_rechg_voltage;
 	unsigned int swelling_drop_voltage_condition;
-	unsigned int wa_fl_check_count;
-
-	unsigned int wa_volt_recov;
-	unsigned int wa_volt_thr;
-	unsigned int wa_float_voltage;
 
 #if defined(CONFIG_CALC_TIME_TO_FULL)
 	unsigned int ttf_hv_12v_charge_current;
@@ -810,7 +831,6 @@ struct sec_battery_platform_data {
 	unsigned int wc_full_input_limit_current;
 	unsigned int wc_cv_current;
 	unsigned int wc_cv_tx_current;
-	unsigned int wc_cv_pack_current;
 	unsigned int max_charging_current;
 	int mix_high_temp;
 	int mix_high_chg_temp;
@@ -905,12 +925,19 @@ struct sec_battery_platform_data {
 	int siop_wireless_charging_limit_current;
 	int siop_hv_wireless_input_limit_current;
 	int siop_hv_wireless_charging_limit_current;
+	int wireless_otg_input_current;
+
+	/* if siop level 0, set minimum fast charging current */
+	int minimum_charging_current_by_siop_0;
+
 	int wc_hero_stand_cc_cv;
 	int wc_hero_stand_cv_current;
 	int wc_hero_stand_hv_cv_current;
 
 	int default_input_current;
 	int default_charging_current;
+	int default_usb_input_current;
+ 	int default_usb_charging_current;
 	int max_input_voltage;
 	int max_input_current;
 	int pre_afc_work_delay;
@@ -927,6 +954,8 @@ struct sec_battery_platform_data {
 	unsigned int cisd_cap_limit;
 	unsigned int max_voltage_thr;
 	unsigned int cisd_alg_index;
+	unsigned int *ignore_cisd_index;
+	unsigned int *ignore_cisd_index_d;
 #endif
 
 	/* ADC setting */
@@ -963,6 +992,7 @@ struct sec_charger_platform_data {
 	int irq_gpio;
 	int chg_irq;
 	unsigned long chg_irq_attr;
+	unsigned int chg_ocp_current;
 
 	/* otg_en setting */
 	int otg_en;
@@ -1044,8 +1074,7 @@ static inline struct power_supply *get_power_supply_by_name(char *name)
 		ret = -ENOENT;	\
 	} else {	\
 		if (psy->desc->function##_property != NULL) { \
-			ret = psy->desc->function##_property(psy, \
-				(enum power_supply_property) (property), &(value)); \
+			ret = psy->desc->function##_property(psy, (property), &(value)); \
 			if (ret < 0) {	\
 				pr_err("%s: Fail to %s "#function" (%d=>%d)\n", \
 						__func__, name, (property), ret);	\
@@ -1122,4 +1151,11 @@ static inline struct power_supply *get_power_supply_by_name(char *name)
 #define is_hv_wire_type(cable_type) ( \
 	is_hv_afc_wire_type(cable_type) || is_hv_qc_wire_type(cable_type))
 
+#define is_nocharge_type(cable_type) ( \
+		cable_type == SEC_BATTERY_CABLE_NONE || \
+		cable_type == SEC_BATTERY_CABLE_OTG || \
+		cable_type == SEC_BATTERY_CABLE_POWER_SHARING)
+	
+#define is_slate_mode(battery) ((battery->current_event & SEC_BAT_CURRENT_EVENT_SLATE) \
+			== SEC_BAT_CURRENT_EVENT_SLATE)
 #endif /* __SEC_CHARGING_COMMON_H */
