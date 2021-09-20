@@ -166,7 +166,7 @@ static void change_battery_pdata(
 			}
 			batt_prop = batt_prop->next;
 		}
-
+		
 		psy = power_supply_get_by_name(start_node->name);
 		if (psy) {
 			value.intval = 0;

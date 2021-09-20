@@ -141,7 +141,7 @@ ssize_t max77865_chg_store_attrs(struct device *dev,
 
 /* MAX77865_CHG_REG_CHG_CNFG_04 */
 #define MAX77865_CHG_MINVSYS_MASK               0xC0
-#define MAX77865_CHG_MINVSYS_SHIFT		6
+#define MAX77865_CHG_MINVSYS_SHIFT		6 
 #define MAX77865_CHG_PRM_MASK                   0x1F
 #define MAX77865_CHG_PRM_SHIFT                  0
 
@@ -285,6 +285,8 @@ struct max77865_charger_data {
 	bool enable_sysovlo_irq;
 	int irq_sysovlo;
 	struct wake_lock sysovlo_wake_lock;
+
+	u8 vsys_ocp;
 
 	bool is_mdock;
 	bool otg_on;

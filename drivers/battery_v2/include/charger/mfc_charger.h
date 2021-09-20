@@ -23,19 +23,10 @@
 #include <linux/i2c.h>
 #include "../sec_charging_common.h"
 
-#if defined(CONFIG_WIRELESS_FIRMWARE_65)
-#define MFC_FW_BIN_VERSION			0x65
-#define MFC_FW_BIN_FULL_VERSION		0x00650001
-#define MFC_FW_BIN_VERSION_ADDR		0x167C //fw rev65 address
-#define MFC_FLASH_FW_HEX_PATH		"mfc/mfc_fw65_flash.bin"
-#define MFC_FW_SDCARD_BIN_PATH		"/sdcard/mfc_fw65_flash.bin"
-#else
 #define MFC_FW_BIN_VERSION			0x58
 #define MFC_FW_BIN_FULL_VERSION		0x00580001
 #define MFC_FW_BIN_VERSION_ADDR		0x14a8 //fw rev58 address
-#define MFC_FLASH_FW_HEX_PATH		"mfc/mfc_fw_flash.bin"
-#define MFC_FW_SDCARD_BIN_PATH		"/sdcard/mfc_fw_flash.bin"
-#endif
+#define FW_ADDRES_MAX 7
 
 /* REGISTER MAPS */
 #define MFC_CHIP_ID_L_REG					0x00
@@ -225,7 +216,7 @@ static const u8 mfc_idt_vout_val[] = {
  0x0F, 0x19, 0x23, 0x2D, 0x37, 0x41, 0x14,
 };
 static const u8 mfc_lsi_vout_val[] = {
- 0x64, 0x78, 0x8C, 0xA0, 0xB4, 0xC8, 0x6E,
+ 0x72, 0x78, 0x8C, 0xA0, 0xC8, 0xC8, 0x6E,
 };
 
 enum {
@@ -234,7 +225,7 @@ enum {
 	MFC_VOUT_7V, // 2
 	MFC_VOUT_8V, // 3
 	MFC_VOUT_9V, // 4
-	MFC_VOUT_10V, // 5
+	MFC_VOUT_10V, // 5 
 	MFC_VOUT_5_5V,		/* CC-CV */
 };
 
@@ -356,7 +347,7 @@ enum {
 #define MFC_CMD_SEND_RX_DATA_MASK			(1 << MFC_CMD_SEND_RX_DATA_SHIFT)
 
 /* Command Register, COM_H(0x4F) */
-#define MFC_CMD2_WP_ON_SHIFT				0
+#define MFC_CMD2_WP_ON_SHIFT				0 
 #define MFC_CMD2_WP_ON_MASK					(1 << MFC_CMD2_WP_ON_SHIFT)
 
 /* Chip Revision and Font Register, Chip_Rev (0x02) */
@@ -481,6 +472,9 @@ enum {
 #define MFC_FW_RESULT_DOWNLOADING			2
 #define MFC_FW_RESULT_PASS				1
 #define MFC_FW_RESULT_FAIL				0
+
+#define MFC_FLASH_FW_HEX_PATH		"mfc/mfc_fw_flash.bin"
+#define MFC_FW_SDCARD_BIN_PATH		"/sdcard/mfc_fw_flash.bin"
 
 enum {
 	MFC_EVENT_IRQ = 0,
@@ -744,6 +738,8 @@ struct mfc_charger_data {
 
 	int i2c_error_count;
 	int wpc_en_flag;
+
+	struct mutex fw_lock;
 };
 
 #endif /* __MFC_CHARGER_H */

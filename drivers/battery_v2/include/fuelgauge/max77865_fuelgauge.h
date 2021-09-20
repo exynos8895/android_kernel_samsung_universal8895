@@ -103,8 +103,19 @@ struct battery_data_t {
 	u32 sw_v_empty_recover_vol;
 	u32 QResidual20;
 	u32 QResidual30;
+	u32 filtercfg;
+	u32 filtercfg_low_temp;
+#if defined(CONFIG_OIS_USE_RUMBA_S6)
 	u32 TempCo;
+#endif
 	u32 Capacity;
+#if defined(CONFIG_OIS_USE_RUMBA_S4)
+	u32 rcomp0;
+	u32 tempco;
+	u32 dPacc;
+	u32 dQacc;
+	u32 fullcapnom;
+#endif
 	u8	*type_str;
 	u32 ichgterm;
 	u32 misccfg;
@@ -183,6 +194,7 @@ struct max77865_fuelgauge_data {
 	bool using_hw_vempty;
 	unsigned int vempty_mode;
 	int temperature;
+	bool vempty_init_flag;
 
 	int low_temp_limit;
 
