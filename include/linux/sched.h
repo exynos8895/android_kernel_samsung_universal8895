@@ -1438,12 +1438,12 @@ struct sched_rt_entity {
 	unsigned int time_slice;
 
 	struct sched_rt_entity *back;
+	/* rq "owned" by this entity/group: */
+	struct rt_rq		*my_q;
 #ifdef CONFIG_RT_GROUP_SCHED
 	struct sched_rt_entity	*parent;
 	/* rq on which this entity is (to be) queued: */
 	struct rt_rq		*rt_rq;
-	/* rq "owned" by this entity/group: */
-	struct rt_rq		*my_q;
 #endif
 #ifdef CONFIG_SMP
 	/* Per entity load average tracking */

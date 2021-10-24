@@ -898,7 +898,6 @@ TRACE_EVENT(sched_rt_load_avg_task,
 );
 
 TRACE_EVENT(sched_rt_load_avg_cpu,
-
 	TP_PROTO(int cpu, struct rt_rq *rt_rq),
 
 	TP_ARGS(cpu, rt_rq),
