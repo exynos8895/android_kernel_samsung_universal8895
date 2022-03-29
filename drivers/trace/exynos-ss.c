@@ -2087,6 +2087,7 @@ bool exynos_ss_dumper_one(void *v_dumper,
 		break;
 	}
 #endif
+#ifndef CONFIG_EXYNOS_SNAPSHOT_MINIMIZED_MODE
 	case ESS_FLAG_PRINTK:
 	{
 		char *log;
@@ -2140,6 +2141,7 @@ bool exynos_ss_dumper_one(void *v_dumper,
 						msg, val, callstack[0], callstack[1], callstack[2], callstack[3]);
 		break;
 	}
+#endif
 	default:
 		snprintf(line, size, "unsupported inforation to dump\n");
 		goto out;
