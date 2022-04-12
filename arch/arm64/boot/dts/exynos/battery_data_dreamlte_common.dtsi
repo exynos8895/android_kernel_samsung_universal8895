@@ -283,6 +283,13 @@
 				700 42875 4217 4187 90
 				1000 42375 4167 4137 89>;
 
+		battery,health_condition = <
+			/* CYCLE ASOC */
+			1200 75	/* GOOD */
+			1500 65 /* NORMAL */
+			1700 55 /* AGED */
+			>;
+
 		battery,max_input_voltage = <12000>; /* mV */
 		battery,max_input_current = <3000>;  /* mA */
 
@@ -322,6 +329,11 @@
 		fuelgauge,qrtable30 = <0x0D00>;
 		fuelgauge,fg_resistor = <2>;
 		fuelgauge,capacity = <0x0C45>;
+		fuelgauge,rcomp0 = <0x001A>;
+		fuelgauge,tempco = <0x0B10>;
+		fuelgauge,dPacc = <0x3200>;
+		fuelgauge,dQacc = <0x05CB>;
+		fuelgauge,fullcapnom = <0x172E>;
 		/*fuelgauge,auto_discharge_en;*/
 		fuelgauge,discharge_temp_threshold = <600>;
 		fuelgauge,discharge_volt_threshold = <4200>;
