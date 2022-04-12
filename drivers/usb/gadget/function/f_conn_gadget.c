@@ -59,6 +59,7 @@
 #include <linux/file.h>
 #include <linux/configfs.h>
 #include <linux/usb/composite.h>
+#include <linux/kref.h>
 
 /* platform specific definitions */
 /* ex) #define __ANDROID__ */
@@ -122,6 +123,8 @@ struct conn_gadget_dev {
  	/* flag variable that save flush call status 
 	 * to check wakeup reason */
 	atomic_t flush;
+	
+	struct kref kref;
 };
 
 static struct usb_interface_descriptor conn_gadget_interface_desc = {
@@ -220,6 +223,7 @@ struct conn_gadget_instance {
 	const char *name;
 };
 
+static void conn_gadget_cleanup(struct kref *kref);
 
 static inline struct conn_gadget_dev *func_to_conn_gadget(struct usb_function *f)
 {
@@ -303,12 +307,12 @@ static int conn_gadget_request_ep_out(struct conn_gadget_dev *dev)
 		req->length = dev->transfer_size;
 		ret = usb_ep_queue(dev->ep_out, req, GFP_ATOMIC);
 		if (ret < 0) {
-			CONN_GADGET_ERR("failed to queue req %p (%d)\n", req, ret);
+			CONN_GADGET_ERR("failed to queue req %pK (%d)\n", req, ret);
 			conn_gadget_req_put(dev, &dev->rx_idle, req);
 			break;
 		} else {
 			conn_gadget_req_put(dev, &dev->rx_busy, req);
-			CONN_GADGET_DBG("rx %p queue\n", req);
+			CONN_GADGET_DBG("rx %pK queue\n", req);
 		}
 	}
 
@@ -395,11 +399,11 @@ static void conn_gadget_complete_out(struct usb_ep *ep, struct usb_request *req)
 
 	ret = usb_ep_queue(dev->ep_out, req, GFP_ATOMIC);
 	if (ret < 0) {
-		CONN_GADGET_ERR("failed to queue req %p (%d)\n", req, ret);
+		CONN_GADGET_ERR("failed to queue req %pK (%d)\n", req, ret);
 		conn_gadget_req_move(dev, &dev->rx_busy, &dev->rx_idle, req);
 		goto done;
 	} else {
-		CONN_GADGET_DBG("rx %p queue\n", req);
+		CONN_GADGET_DBG("rx %pK queue\n", req);
 	}
 
 done:
@@ -416,7 +420,7 @@ static int conn_gadget_create_bulk_endpoints(struct conn_gadget_dev *dev,
 	struct usb_ep *ep;
 	int i;
 
-	pr_debug("create_bulk_endpoints dev: %p\n", dev);
+	pr_debug("create_bulk_endpoints dev: %pK\n", dev);
 
 	ep = usb_ep_autoconfig(cdev->gadget, in_desc);
 	if (!ep) {
@@ -682,6 +686,11 @@ static int conn_gadget_open(struct inode *ip, struct file *fp)
 		return -EBUSY;
 	}
 
+	if (!kref_get_unless_zero(&_conn_gadget_dev->kref)) {
+		CONN_GADGET_ERR("already device removed\n");
+		return -ENODEV;
+	}
+
 	fp->private_data = _conn_gadget_dev;
 
 	/* clear the error latch */
@@ -742,6 +751,8 @@ static int conn_gadget_release(struct inode *ip, struct file *fp)
 	atomic_set(&_conn_gadget_dev->flush, 0);
 
 	conn_gadget_unlock(&_conn_gadget_dev->open_excl);
+	
+	kref_put(&_conn_gadget_dev->kref, conn_gadget_cleanup);
 	return 0;
 }
 
@@ -875,7 +886,7 @@ conn_gadget_function_bind(struct usb_configuration *c, struct usb_function *f)
 	int			ret;
 
 	dev->cdev = cdev;
-	printk(KERN_ERR "conn_gadget_function_bind dev: %p\n", dev);
+	printk(KERN_ERR "conn_gadget_function_bind dev: %pK\n", dev);
 
 	/* allocate interface ID(s) */
 	id = usb_interface_id(c, f);
@@ -1013,7 +1024,7 @@ static void conn_gadget_function_disable(struct usb_function *f)
 	struct conn_gadget_dev	*dev = func_to_conn_gadget(f);
 	struct usb_composite_dev	*cdev = dev->cdev;
 
-	printk(KERN_ERR "conn_gadget_function_disable cdev %p\n", cdev);
+	printk(KERN_ERR "conn_gadget_function_disable cdev %pK\n", cdev);
 	dev->memorized = dev->online;
 	dev->online = 0;
 	dev->error = 1;
@@ -1207,6 +1218,8 @@ static int conn_gadget_setup(struct conn_gadget_instance *fi_conn_gadget)
 	atomic_set(&dev->write_excl, 0);
 	atomic_set(&dev->flush, 0);
 
+	kref_init(&dev->kref);
+
 	INIT_LIST_HEAD(&dev->tx_idle);
 	INIT_LIST_HEAD(&dev->rx_idle);
 	INIT_LIST_HEAD(&dev->rx_busy);
@@ -1255,7 +1268,7 @@ err_:
 	return ret;
 }
 
-static void conn_gadget_cleanup(void)
+static void conn_gadget_cleanup(struct kref *kref)
 {
 	printk(KERN_INFO "conn_gadget_cleanup\n");
 
@@ -1331,8 +1344,8 @@ static void conn_gadget_free_inst(struct usb_function_instance *fi)
 
 	fi_conn_gadget = to_fi_conn_gadget(fi);
 	kfree(fi_conn_gadget->name);
-	conn_gadget_cleanup();
 	kfree(fi_conn_gadget);
+	kref_put(&_conn_gadget_dev->kref, conn_gadget_cleanup);
 }
 
 struct usb_function_instance *alloc_inst_conn_gadget(void)
