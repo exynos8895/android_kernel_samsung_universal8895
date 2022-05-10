@@ -426,12 +426,14 @@ static ssize_t sec_cmd_list_show(struct device *dev,
 }
 
 static DEVICE_ATTR(cmd, S_IWUSR | S_IWGRP, NULL, sec_cmd_store);
+static DEVICE_ATTR(cmd2, S_IWUSR | S_IWGRP, NULL, sec_cmd_store);
 static DEVICE_ATTR(cmd_status, S_IRUGO, sec_cmd_show_status, NULL);
 static DEVICE_ATTR(cmd_result, S_IRUGO, sec_cmd_show_result, NULL);
 static DEVICE_ATTR(cmd_list, S_IRUGO, sec_cmd_list_show, NULL);
 
 static struct attribute *sec_fac_attrs[] = {
 	&dev_attr_cmd.attr,
+        &dev_attr_cmd2.attr,
 	&dev_attr_cmd_status.attr,
 	&dev_attr_cmd_result.attr,
 	&dev_attr_cmd_list.attr,
