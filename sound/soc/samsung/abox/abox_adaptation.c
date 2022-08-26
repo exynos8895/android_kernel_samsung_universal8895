@@ -72,7 +72,9 @@ int maxim_dsm_read(int offset, int size, void *dsm_data)
 
 	return ret;
 }
+#ifndef CONFIG_MODULES
 EXPORT_SYMBOL_GPL(maxdsm_dsm_read);
+#endif
 
 int maxim_dsm_write(uint32_t *dsm_data, int offset, int size)
 {
@@ -108,7 +110,9 @@ int maxim_dsm_write(uint32_t *dsm_data, int offset, int size)
 
 	return ret;
 }
+#ifndef CONFIG_MODULES
 EXPORT_SYMBOL_GPL(maxdsm_dsm_write);
+#endif
 
 static irqreturn_t abox_adaptation_irq_handler(int irq,
 					void *dev_id, ABOX_IPC_MSG *msg)
